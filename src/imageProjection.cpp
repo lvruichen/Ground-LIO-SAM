@@ -1,6 +1,9 @@
 #include "utility.h"
 #include "lio_sam/cloud_info.h"
 
+// 主要有两个队列，imuQueue和odomQueue，这两个队列缓存接受到的消息，用于后续的点云操作
+
+// 定义的点云数据结构
 struct VelodynePointXYZIRT
 {
     PCL_ADD_POINT4D
@@ -301,7 +304,7 @@ public:
 
         return true;
     }
-
+    // 只要imuQueue中有当前雷达帧起始时刻后的数据，就认为有效（前面已经判断过imu数据包含当前帧结束后的数据）
     void imuDeskewInfo()
     {
         cloudInfo.imuAvailable = false;
@@ -344,7 +347,7 @@ public:
             double angular_x, angular_y, angular_z;
             imuAngular2rosAngular(&thisImuMsg, &angular_x, &angular_y, &angular_z);
 
-            // integrate rotation
+            // integrate rotation，利用imu的角速度推算出角位移
             double timeDiff = currentImuTime - imuTime[imuPointerCur-1];
             imuRotX[imuPointerCur] = imuRotX[imuPointerCur-1] + angular_x * timeDiff;
             imuRotY[imuPointerCur] = imuRotY[imuPointerCur-1] + angular_y * timeDiff;
@@ -361,6 +364,7 @@ public:
         cloudInfo.imuAvailable = true;
     }
 
+    // 只有odomQueue的数据能够包括当前激光帧起始和终止时刻，才认为有效
     void odomDeskewInfo()
     {
         cloudInfo.odomAvailable = false;
@@ -435,6 +439,7 @@ public:
         tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
         Eigen::Affine3f transEnd = pcl::getTransformation(endOdomMsg.pose.pose.position.x, endOdomMsg.pose.pose.position.y, endOdomMsg.pose.pose.position.z, roll, pitch, yaw);
 
+        // 从雷达帧起始时刻坐标系变化到末尾时刻坐标系
         Eigen::Affine3f transBt = transBegin.inverse() * transEnd;
 
         float rollIncre, pitchIncre, yawIncre;
@@ -517,7 +522,7 @@ public:
 
         return newPoint;
     }
-
+    // fullCloud里面保存的是去畸变后的雷达点云
     void projectPointCloud()
     {
         int cloudSize = laserCloudIn->points.size();
@@ -571,10 +576,11 @@ public:
         }
     }
 
+    // 将fullCloud里面有效的点云提取出来形成extractedCloud
     void cloudExtraction()
     {
         int count = 0;
-        // extract segmented cloud for lidar odometry
+        // extract segmented cloud for lidar odometry，并保存相应的每一列和每一行的索引
         for (int i = 0; i < N_SCAN; ++i)
         {
             cloudInfo.startRingIndex[i] = count - 1 + 5;
