@@ -56,7 +56,9 @@ public:
             }
         }
 
+        // 低频的雷达里程计
         subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("lio_sam/mapping/odometry", 5, &TransformFusion::lidarOdometryHandler, this, ros::TransportHints().tcpNoDelay());
+        // 根据上面的低频雷达里程计，结合imu里成绩，得到高频的雷达里程计
         subImuOdometry   = nh.subscribe<nav_msgs::Odometry>(odomTopic+"_incremental",   2000, &TransformFusion::imuOdometryHandler,   this, ros::TransportHints().tcpNoDelay());
 
         pubImuOdometry   = nh.advertise<nav_msgs::Odometry>(odomTopic, 2000);
@@ -86,7 +88,7 @@ public:
 
     void imuOdometryHandler(const nav_msgs::Odometry::ConstPtr& odomMsg)
     {
-        // static tf
+        // static tf发布map到odom的坐标变换
         static tf::TransformBroadcaster tfMap2Odom;
         static tf::Transform map_to_odom = tf::Transform(tf::createQuaternionFromRPY(0, 0, 0), tf::Vector3(0, 0, 0));
         tfMap2Odom.sendTransform(tf::StampedTransform(map_to_odom, odomMsg->header.stamp, mapFrame, odometryFrame));
@@ -112,7 +114,7 @@ public:
         float x, y, z, roll, pitch, yaw;
         pcl::getTranslationAndEulerAngles(imuOdomAffineLast, x, y, z, roll, pitch, yaw);
         
-        // publish latest odometry
+        // publish latest odometry利用上一帧的雷达里程计坐标加上imuOdom的增量，得到的imu频率的雷达里程计
         nav_msgs::Odometry laserOdometry = imuOdomQueue.back();
         laserOdometry.pose.pose.position.x = x;
         laserOdometry.pose.pose.position.y = y;
@@ -249,6 +251,7 @@ public:
         systemInitialized = false;
     }
 
+    // 接受lio_sam的mapping的信息，猜测应该是低频的10hz输出
     void odometryHandler(const nav_msgs::Odometry::ConstPtr& odomMsg)
     {
         std::lock_guard<std::mutex> lock(mtx);
@@ -267,10 +270,11 @@ public:
         float r_z = odomMsg->pose.pose.orientation.z;
         float r_w = odomMsg->pose.pose.orientation.w;
         bool degenerate = (int)odomMsg->pose.covariance[0] == 1 ? true : false;
+        // lidarPose是因子图初始的一个定住的点
         gtsam::Pose3 lidarPose = gtsam::Pose3(gtsam::Rot3::Quaternion(r_w, r_x, r_y, r_z), gtsam::Point3(p_x, p_y, p_z));
 
 
-        // 0. initialize system
+        // 0. initialize system，一开始初始化的时候默认速度是0,imu的bias也是0,然后优化一次
         if (systemInitialized == false)
         {
             resetOptimization();
@@ -316,7 +320,7 @@ public:
         }
 
 
-        // reset graph for speed
+        // reset graph for speed，每到100次的时候重新reset因子图，减少因子数量
         if (key == 100)
         {
             // get updated noise before reset
@@ -348,6 +352,7 @@ public:
 
 
         // 1. integrate imu data and optimize
+        // 首先让原始的imuQueOpt里的imu数据进行积分，从而得到当前时刻的imu的测量值
         while (!imuQueOpt.empty())
         {
             // pop and integrate imu data that is between two optimizations
@@ -366,6 +371,7 @@ public:
             else
                 break;
         }
+        // 将当前时刻的imu的测量值加入到因子图中，执行优化
         // add imu factor to graph
         const gtsam::PreintegratedImuMeasurements& preint_imu = dynamic_cast<const gtsam::PreintegratedImuMeasurements&>(*imuIntegratorOpt_);
         gtsam::ImuFactor imu_factor(X(key - 1), V(key - 1), X(key), V(key), B(key - 1), preint_imu);
@@ -404,6 +410,7 @@ public:
 
 
         // 2. after optiization, re-propagate imu odometry preintegration
+        // 在因子图执行优化完毕后，将imu优化得到的bias重新送入imu预积分
         prevStateOdom = prevState_;
         prevBiasOdom  = prevBias_;
         // first pop imu message older than current correction data
@@ -455,6 +462,7 @@ public:
         return false;
     }
 
+    // 将原始的imu数据push到imuQueOpt和imuQueImu这两个队列里，然后利用imu预积分得到imu里程计
     void imuHandler(const sensor_msgs::Imu::ConstPtr& imu_raw)
     {
         std::lock_guard<std::mutex> lock(mtx);

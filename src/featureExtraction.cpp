@@ -1,6 +1,7 @@
 #include "utility.h"
 #include "lio_sam/cloud_info.h"
 
+// 定义点云的曲率
 struct smoothness_t{ 
     float value;
     size_t ind;
@@ -69,8 +70,10 @@ public:
         cloudHeader = msgIn->header; // new cloud header
         pcl::fromROSMsg(msgIn->cloud_deskewed, *extractedCloud); // new cloud for extraction
 
+        // 计算每一个点的曲率
         calculateSmoothness();
 
+        // 如果某个点周围10个像素内的有差距很大的点，则认为存在遮挡，如果激光束打在了几乎和光束平行的面上，也舍弃
         markOccludedPoints();
 
         extractFeatures();
@@ -176,6 +179,8 @@ public:
                         }
 
                         cloudNeighborPicked[ind] = 1;
+
+                        //防止角点过于密集
                         for (int l = 1; l <= 5; l++)
                         {
                             int columnDiff = std::abs(int(cloudInfo.pointColInd[ind + l] - cloudInfo.pointColInd[ind + l - 1]));
@@ -221,6 +226,7 @@ public:
                     }
                 }
 
+                // 默认将非角点的点都当作平面点来处理
                 for (int k = sp; k <= ep; k++)
                 {
                     if (cloudLabel[k] <= 0){
