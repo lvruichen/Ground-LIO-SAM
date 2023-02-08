@@ -146,6 +146,10 @@ public:
     int   historyKeyframeSearchNum;
     float historyKeyframeFitnessScore;
 
+    // Ground Factor
+    bool groundFactorFlag;
+    int groundFactorInterval;
+
     // global map visualization radius
     float globalMapVisualizationSearchRadius;
     float globalMapVisualizationPoseDensity;
@@ -241,6 +245,9 @@ public:
         nh.param<float>("lio_sam/historyKeyframeSearchTimeDiff", historyKeyframeSearchTimeDiff, 30.0);
         nh.param<int>("lio_sam/historyKeyframeSearchNum", historyKeyframeSearchNum, 25);
         nh.param<float>("lio_sam/historyKeyframeFitnessScore", historyKeyframeFitnessScore, 0.3);
+
+        nh.param<bool>("lio_sam/groundFactorFlag", groundFactorFlag, false);
+        nh.param<int>("lio_sam/groundFactorInterval", groundFactorInterval, 5);
 
         nh.param<float>("lio_sam/globalMapVisualizationSearchRadius", globalMapVisualizationSearchRadius, 1e3);
         nh.param<float>("lio_sam/globalMapVisualizationPoseDensity", globalMapVisualizationPoseDensity, 10.0);

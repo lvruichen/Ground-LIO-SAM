@@ -1474,6 +1474,25 @@ public:
         }
     }
 
+    void addGroundFactor() 
+    {
+        if(groundFactorFlag == false)
+            return;
+        static int count = 0;
+        if(count < groundFactorInterval)
+        {
+            count += 1;
+            return;
+        }
+        count = 0;
+        gtsam::Vector Vector3(3);
+        Vector3 << 0.5f, 0.5f, 0.5f;
+        noiseModel::Diagonal::shared_ptr gps_noise = noiseModel::Diagonal::Variances(Vector3);
+        gtsam::GPSFactor gps_factor(cloudKeyPoses3D->size(), gtsam::Point3(transformTobeMapped[3],transformTobeMapped[4], 0), gps_noise);
+                gtSAMgraph.add(gps_factor);
+        cout << "add ground factor" << endl;
+    }
+
     void addLoopFactor()
     {
         if (loopIndexQueue.empty())
@@ -1504,6 +1523,8 @@ public:
 
         // gps factor
         addGPSFactor();
+
+        addGroundFactor();
 
         // loop factor
         addLoopFactor();
