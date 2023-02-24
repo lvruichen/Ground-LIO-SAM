@@ -1,4 +1,4 @@
-#include "utility.h"
+#include "lio_sam/utility.h"
 #include "lio_sam/cloud_info.h"
 #include "lio_sam/save_map.h"
 
@@ -795,6 +795,13 @@ public:
             transformTobeMapped[0] = cloudInfo.imuRollInit;
             transformTobeMapped[1] = cloudInfo.imuPitchInit;
             transformTobeMapped[2] = cloudInfo.imuYawInit;
+            // cout << "map_origin_transform" << endl;
+            // cout << "transformTobeMapped[0]: " << transformTobeMapped[0] << endl;
+            // cout << "transformTobeMapped[1]: " << transformTobeMapped[1] << endl;
+            // cout << "transformTobeMapped[2]: " << transformTobeMapped[2] << endl;
+            // cout << "transformTobeMapped[3]: " << transformTobeMapped[3] << endl;
+            // cout << "transformTobeMapped[4]: " << transformTobeMapped[4] << endl;
+            // cout << "transformTobeMapped[5]: " << transformTobeMapped[5] << endl;
 
             if (!useImuHeadingInitialization)
                 transformTobeMapped[2] = 0;

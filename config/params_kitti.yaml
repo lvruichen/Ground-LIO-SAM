@@ -1,8 +1,8 @@
 lio_sam:
 
   # Topics
-  pointCloudTopic: "lidar_points"               # Point cloud data
-  imuTopic: "imu/data"                         # IMU data
+  pointCloudTopic: "points_raw"               # Point cloud data
+  imuTopic: "imu_raw"                         # IMU data
   odomTopic: "odometry/imu"                   # IMU pre-preintegration odometry, same frequency as IMU
   gpsTopic: "odometry/gpsz"                   # GPS odometry topic from navsat, see module_navsat.launch file
 
@@ -13,7 +13,7 @@ lio_sam:
   mapFrame: "map"
 
   # GPS Settings
-  useImuHeadingInitialization: false           # if using GPS data, set to "true"
+  useImuHeadingInitialization: true           # if using GPS data, set to "true"
   useGpsElevation: false                      # if GPS elevation is bad, set to "false"
   gpsCovThreshold: 2.0                        # m^2, threshold for using GPS data
   poseCovThreshold: 25.0                      # m^2, threshold for using GPS data
@@ -22,10 +22,10 @@ lio_sam:
   savePCD: false                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
   savePCDDirectory: "/Downloads/LOAM/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
 
-  # Sensor Settings
+  # Kitti
   sensor: velodyne                            # lidar sensor type, 'velodyne' or 'ouster' or 'livox'
-  N_SCAN: 16                                  # number of lidar channel (i.e., Velodyne/Ouster: 16, 32, 64, 128, Livox Horizon: 6)
-  Horizon_SCAN: 1800                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048, Livox Horizon: 4000)
+  N_SCAN: 64                                  # number of lidar channel (i.e., Velodyne/Ouster: 16, 32, 64, 128, Livox Horizon: 6)
+  Horizon_SCAN: 2083                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048, Livox Horizon: 4000)
   downsampleRate: 1                           # default: 1. Downsample your data if too many points. i.e., 16 = 64 / 4, 16 = 16 / 1
   lidarMinRange: 1.0                          # default: 1.0, minimum lidar range to be used
   lidarMaxRange: 1000.0                       # default: 1000.0, maximum lidar range to be used
@@ -39,19 +39,15 @@ lio_sam:
   imuRPYWeight: 0.01
 
   # Extrinsics: T_lb (lidar -> imu)
-  extrinsicTrans: [0.0, 0.0, 0.0]
-  extrinsicRot: [0, 1, 0,
-                  -1, 0, 0,
-                  0, 0, 1]
-  extrinsicRPY: [0, 1, 0,
-                 -1, 0, 0,
-                 0, 0, 1]
-  # extrinsicRot: [1, 0, 0,
-  #                 0, 1, 0,
-  #                 0, 0, 1]
-  # extrinsicRPY: [1, 0, 0,
-  #                 0, 1, 0,
-  #                 0, 0, 1]
+  # kitti外参
+  extrinsicTrans: [-8.086759e-01, 3.195559e-01, -7.997231e-01]
+  extrinsicRot: [9.999976e-01, 7.553071e-04, -2.035826e-03,
+                  -7.854027e-04, 9.998898e-01, -1.482298e-02,
+                  2.024406e-03, 1.482454e-02, 9.998881e-01]
+  extrinsicRPY: [9.999976e-01,  7.553071e-04, -2.035826e-03,
+                 -7.854027e-04, 9.998898e-01, -1.482298e-02,
+                  2.024406e-03, 1.482454e-02, 9.998881e-01]
+
 
   # LOAM feature threshold
   edgeThreshold: 1.0

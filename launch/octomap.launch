@@ -1,0 +1,32 @@
+<!-- 接收点云信息，不断更新到octomap中，生成八叉树地图 -->
+<launch>
+    <node pkg="octomap_server" type="octomap_server_node" name="octomap_server">
+        <param name="resolution" value="0.10" />
+        
+        <!-- fixed map frame (set to 'map' if SLAM or localization running!) -->
+        <param name="frame_id" type="string" value="map" />
+        
+        <!-- maximum range to integrate (speedup!) -->
+        <param name="sensor_model/max_range" value="50.0" />
+
+        <!-- TODO: What exactly is this? -->
+        <param name="sensor_model/hit" value="0.8" />
+
+        <param name="base_frame_id" value="base_link" />
+
+
+        <!-- <param name="filter_ground" value="false" /> -->
+        <!-- # Don't use this -->
+        <!-- <param name="ground_filter/plane_distance" value="0.2" /> -->
+        <!-- <param name="ground_filter/distance" value="0.2" /> -->
+        <!-- <param name="ground_filter/angle" value="5.0" /> -->
+
+
+        <param name="pointcloud_min_z" value="0.3" />
+        <param name="pointcloud_max_z" value="4" />
+
+        <!-- data source to integrate (PointCloud2) -->
+        <remap from="cloud_in" to="/lio_sam/deskew/cloud_deskewed" />
+        <!-- <remap from="cloud_in" to="voxel_grid/output" /> -->
+	</node>
+</launch>

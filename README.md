@@ -28,3 +28,8 @@ We design a system that maintains two graphs and runs up to 10x faster than real
 <p align='center'>
     <img src="./config/doc/sim-data.png" alt="drawing" width="800"/>
 </p>
+
+lio_sam在kitti数据集上测试，测试采用sequence05，建图效果如下：
+<p align='center'>
+    <img src="./config/doc/kitti_lio_sam.png" alt="drawing" width="800"/>
+</p>

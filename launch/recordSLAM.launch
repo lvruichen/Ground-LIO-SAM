@@ -1,0 +1,14 @@
+<!-- 本launch文件用来保存lio-sam建图的结果，由rosbag保存 -->
+<launch>
+
+    <arg name="bag_path_play" value="/home/eric/data/simulation_demo_dynamic/demo_dyna_4_filter.bag"/>
+
+    <arg name="bag_path_record" value="/home/eric/data/simulation_demo_dynamic/demo_dyna_4_filter_res.bag"/>
+
+    <node pkg="rosbag" type="play" args= "$(arg bag_path_play) --pause" name="rosbagPlay" output="screen" />
+
+    <node pkg="rosbag" type="record" args= "-O $(arg bag_path_record) /lio_sam/mapping/odometry" name="rosbagRecord" output="screen" />
+
+    <include file="$(find lio_sam)/launch/run.launch" />
+
+</launch>
