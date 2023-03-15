@@ -12,7 +12,7 @@
         <!-- TODO: What exactly is this? -->
         <param name="sensor_model/hit" value="0.8" />
 
-        <param name="base_frame_id" value="base_link" />
+        <param name="base_frame_id" value="/sim/base_link" />
 
 
         <!-- <param name="filter_ground" value="false" /> -->
@@ -29,4 +29,5 @@
         <remap from="cloud_in" to="/lio_sam/deskew/cloud_deskewed" />
         <!-- <remap from="cloud_in" to="voxel_grid/output" /> -->
 	</node>
+    <include file="$(find lio_sam)/launch/run.launch"/>
 </launch>

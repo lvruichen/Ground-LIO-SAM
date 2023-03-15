@@ -54,6 +54,10 @@
 #include <thread>
 #include <mutex>
 
+// logger
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 using namespace std;
 
 typedef pcl::PointXYZI PointType;
