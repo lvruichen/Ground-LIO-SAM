@@ -50,6 +50,7 @@ private:
     json data;
     double timeScanCur;
     sensor_msgs::PointCloud2 currentCloudMsg;
+    Eigen::Matrix4f currentPose;
 
     int submapCapacity = data["submapCapacity"].get<int>();
     int laserInterval = 1;
@@ -105,14 +106,16 @@ public:
             laserCount = 0;
             currentCloudMsg = *laserCloudMsg;
             pcl::fromROSMsg(currentCloudMsg, *laserCloudIn);
+
             // cloud转化到map坐标系下
             if(!transCurCloud())
                 return;
-            
 
             // cloud插入到tree里面
+            insertCloudtoTree();
 
             // cloud插入到submapRawCloud
+            insertCloudtoSubmap();
 
             // 当submap的容量达到上限时，开始利用octree分离动态点云和静态点云
 
@@ -140,9 +143,27 @@ public:
             return false;
         nav_msgs::Odometry thisOdom = odomQueue.front();
         geometry_msgs::Transform thisTrans = OdomToTransform(thisOdom);
-        Eigen::Matrix4f pose = TransformToMatrix(thisTrans);
-        pcl::transformPointCloud(*laserCloudIn, *laserCloudIn, pose);
+        currentPose = TransformToMatrix(thisTrans);
+        pcl::transformPointCloud(*laserCloudIn, *laserCloudIn, currentPose);
         return true;
+    }
+
+    void insertCloudtoTree() {
+        octomap::Pointcloud cloudOcto;
+        for (const auto &p : laserCloudIn->points) {
+            cloudOcto.push_back(p.x, p.y, p.z);
+        }
+        tree->insertPointCloud(cloudOcto, octomap::point3d(currentPose(0, 3), currentPose(1, 3), currentPose(2, 3)));
+    }
+
+    void insertCloudtoSubmap() {
+        *submapRawCloud += *laserCloudIn;
+    }
+
+    void splitRawSubmap() {
+        for (const auto &p : *submapRawCloud) {
+            
+        }
     }
 
     // 以一定的频率可视化动态点云和静态点云
