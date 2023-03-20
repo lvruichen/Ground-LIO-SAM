@@ -2,10 +2,12 @@
 #include "lio_sam/cloud_info.h"
 #include "common/nlohmann/json.hpp"
 #include "common/pcl_utils/pcl_utils.h"
+#include "common/ros_utils/transform.hpp"
 #include <octomap/octomap.h>
 
 
 using json = nlohmann::json;
+using namespace ros_utils;
 
 struct VelodynePointXYZIRT
 {
@@ -38,15 +40,20 @@ private:
     std::vector<pcl::PointCloud<PointXYZIRT>::Ptr> RawSubmapSet;
     std::vector<pcl::PointCloud<PointXYZIRT>::Ptr> StaticSubmapSet;
     std::vector<pcl::PointCloud<PointXYZIRT>::Ptr> DynamicSubmapSet;
+
+    pcl::PointCloud<PointXYZIRT>::Ptr laserCloudIn;
     
     pcl::PointCloud<PointXYZIRT>::Ptr submapRawCloud;
     pcl::PointCloud<PointXYZIRT>::Ptr submapStaticCloud;
     pcl::PointCloud<PointXYZIRT>::Ptr submapDynamicCloud;
+
     json data;
     double timeScanCur;
     sensor_msgs::PointCloud2 currentCloudMsg;
 
     int submapCapacity = data["submapCapacity"].get<int>();
+    int laserInterval = 1;
+    int laserCount = 0;
     
 public:
     OctomapSlam() {
@@ -70,6 +77,7 @@ public:
     }   
 
     void allocateMemory() {
+        laserCloudIn.reset(new pcl::PointCloud<PointXYZIRT>());
         submapRawCloud.reset(new pcl::PointCloud<PointXYZIRT>());
         submapStaticCloud.reset(new pcl::PointCloud<PointXYZIRT>());
         submapDynamicCloud.reset(new pcl::PointCloud<PointXYZIRT>());
@@ -91,27 +99,50 @@ public:
     }
 
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
-        currentCloudMsg = *laserCloudMsg;
-        // cloud转化到map坐标系下
-
         // 如果需要添加间隔，则在间隔内return
+        laserCount++;
+        if(laserCount == laserInterval) {
+            laserCount = 0;
+            currentCloudMsg = *laserCloudMsg;
+            pcl::fromROSMsg(currentCloudMsg, *laserCloudIn);
+            // cloud转化到map坐标系下
+            if(!transCurCloud())
+                return;
+            
 
-        // cloud插入到tree里面
+            // cloud插入到tree里面
 
-        // cloud插入到submapRawCloud
+            // cloud插入到submapRawCloud
 
-        // 当submap的容量达到上限时，开始利用octree分离动态点云和静态点云
+            // 当submap的容量达到上限时，开始利用octree分离动态点云和静态点云
 
-        // 得到的submapRaw, submapStatic, submapDynami插入到set里面 
+            // 得到的submapRaw, submapStatic, submapDynami插入到set里面 
+        }
+
+        
 
     }
 
-    void transCurCloud() {
+    bool transCurCloud() {
         timeScanCur = currentCloudMsg.header.stamp.toSec();
         std::lock_guard<std::mutex> lock1(odoLock);
         if (odomQueue.empty() || odomQueue.front().header.stamp.toSec() > timeScanCur) {
             logger->info("Waiting for odom data ...");
+            return false;
         }
+        while(!odomQueue.empty()) {
+            if(odomQueue.front().header.stamp.toSec() < timeScanCur - 0.01)
+                odomQueue.pop_front();
+            else
+                break;
+        }
+        if(odomQueue.empty())
+            return false;
+        nav_msgs::Odometry thisOdom = odomQueue.front();
+        geometry_msgs::Transform thisTrans = OdomToTransform(thisOdom);
+        Eigen::Matrix4f pose = TransformToMatrix(thisTrans);
+        pcl::transformPointCloud(*laserCloudIn, *laserCloudIn, pose);
+        return true;
     }
 
     // 以一定的频率可视化动态点云和静态点云
