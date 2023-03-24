@@ -26,6 +26,7 @@ find_package(PCL REQUIRED QUIET)
 find_package(OpenCV REQUIRED QUIET)
 find_package(GTSAM REQUIRED QUIET)
 find_package(Boost REQUIRED COMPONENTS timer)
+find_package(octomap REQUIRED)
 
 add_message_files(
   DIRECTORY msg
@@ -68,6 +69,7 @@ include_directories(
 	${PCL_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
 	${GTSAM_INCLUDE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/include
 )
 
 # link directories
@@ -101,3 +103,8 @@ target_link_libraries(${PROJECT_NAME}_mapOptmization Boost::timer ${catkin_LIBRA
 # IMU Preintegration
 add_executable(${PROJECT_NAME}_imuPreintegration src/imuPreintegration.cpp)
 target_link_libraries(${PROJECT_NAME}_imuPreintegration Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} gtsam)
+
+#Octomap SLam
+add_executable(${PROJECT_NAME}_octomapSlam src/octomapSlam.cpp)
+target_link_directories(${PROJECT_NAME}_octomapSlam PUBLIC /home/eric/a_ros_ws/lio_sam_lrc/devel/lib ${OCTOMAP_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME}_octomapSlam Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OCTOMAP_LIBRARIES} pcl_utils)

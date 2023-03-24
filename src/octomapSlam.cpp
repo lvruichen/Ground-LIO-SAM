@@ -23,6 +23,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT (VelodynePointXYZIRT,
 )
 
 using PointXYZIRT = VelodynePointXYZIRT;
+using Point = pcl::PointXYZI;
 
 class OctomapSlam : public ParamServer
 {
@@ -49,12 +50,15 @@ private:
 
     json data;
     double timeScanCur;
+    ros::Time timeScanCurStamp;
     sensor_msgs::PointCloud2 currentCloudMsg;
     Eigen::Matrix4f currentPose;
 
-    int submapCapacity = data["submapCapacity"].get<int>();
-    int laserInterval = 1;
+    int submapCapacity = 10;
+    int laserInterval = 2;
+
     int laserCount = 0;
+    int curSubmapSzie = 0;
     
 public:
     OctomapSlam() {
@@ -62,19 +66,26 @@ public:
         string jsonFile = "/home/eric/a_ros_ws/lio_sam_lrc/src/dynamic-removal/config/octomapConfig.json";
         fstream f(jsonFile);
         data = json::parse(f);
+
         subImuOdom = nh.subscribe<nav_msgs::Odometry>(odomTopic+"_incremental", 2000, 
         &OctomapSlam::odometryHandler, this, ros::TransportHints().tcpNoDelay());
         subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("lio_sam/deskew/cloud_deskewed", 1,
         &OctomapSlam::cloudHandler, this, ros::TransportHints().tcpNoDelay());
 
-        tree = std::make_unique<octomap::OcTree>(new octomap::OcTree(data["resolution"].get<float>()));
+        pubGloablCloud = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/Octomap/global_map", 1);
+
+        submapCapacity = data["submapCapacity"].get<int>();
+        laserInterval = data["laserInterval"].get<int>();
+        unique_ptr<octomap::OcTree> ptr(new octomap::OcTree(data["resolution"].get<double>()));
+        tree = move(ptr);
+        // tree = make_unique<octomap::OcTree>(new oc   tomap::OcTree(treeResolution));
         tree->setProbHit(data["probability_hit"].get<float>());
         tree->setProbMiss(data["probability_miss"].get<float>());
         tree->setClampingThresMin(data["threshold_min"].get<float>());
         tree->setClampingThresMax(data["threshold_max"].get<float>());
         tree->setOccupancyThres(data["threshold_occupancy"].get<float>());
-
         allocateMemory();
+        logger->info("initialize succeed !");
     }   
 
     void allocateMemory() {
@@ -86,7 +97,7 @@ public:
     }
 
     void resetParameters() {
-        tree->clear();
+        laserCloudIn->clear();
         submapRawCloud->clear();
         submapStaticCloud->clear();
         submapDynamicCloud->clear();
@@ -103,31 +114,40 @@ public:
         // 如果需要添加间隔，则在间隔内return
         laserCount++;
         if(laserCount == laserInterval) {
+            curSubmapSzie++;
             laserCount = 0;
             currentCloudMsg = *laserCloudMsg;
-            pcl::fromROSMsg(currentCloudMsg, *laserCloudIn);
+            laserCloudIn->clear();
+            pcl::moveFromROSMsg(currentCloudMsg, *laserCloudIn);
 
             // cloud转化到map坐标系下
-            if(!transCurCloud())
+            if(!this->transCurCloud())
                 return;
 
             // cloud插入到tree里面
-            insertCloudtoTree();
+            this->insertCloudtoTree();
 
             // cloud插入到submapRawCloud
-            insertCloudtoSubmap();
+            this->insertCloudtoSubmap();
 
-            // 当submap的容量达到上限时，开始利用octree分离动态点云和静态点云
+            if(curSubmapSzie < submapCapacity) {
+                return;
+            }
+            else {
+                // 当submap的容量达到上限时，开始利用octree分离动态点云和静态点云
+                this->splitRawSubmap();
+                // 得到的submapRaw, submapStatic, submapDynami插入到set里面
+                this->saveSubmap();
+                curSubmapSzie = 0;
+                resetParameters();
+            }
 
-            // 得到的submapRaw, submapStatic, submapDynami插入到set里面 
         }
-
-        
-
     }
 
     bool transCurCloud() {
         timeScanCur = currentCloudMsg.header.stamp.toSec();
+        timeScanCurStamp = currentCloudMsg.header.stamp;
         std::lock_guard<std::mutex> lock1(odoLock);
         if (odomQueue.empty() || odomQueue.front().header.stamp.toSec() > timeScanCur) {
             logger->info("Waiting for odom data ...");
@@ -161,19 +181,83 @@ public:
     }
 
     void splitRawSubmap() {
+        tree->updateInnerOccupancy();
         for (const auto &p : *submapRawCloud) {
-            
+            octomap::OcTreeNode* node = tree->search(p.x, p.y, p.z);
+            if (node == nullptr) {
+                continue;
+            }
+            if (tree->isNodeOccupied(node) || p.z < -1) {
+                submapStaticCloud->points.push_back(p);
+            }
+            else if (!tree->isNodeOccupied(node) && p.z > -1) {
+                submapDynamicCloud->points.push_back(p);
+            }
+            else {
+                submapStaticCloud->points.push_back(p);
+            }
         }
+    }
+
+    void saveSubmap() {
+        pcl::PointCloud<PointXYZIRT>::Ptr submapRawCloud_(new pcl::PointCloud<PointXYZIRT>());
+        pcl::PointCloud<PointXYZIRT>::Ptr submapStaticCloud_(new pcl::PointCloud<PointXYZIRT>());
+        pcl::PointCloud<PointXYZIRT>::Ptr submapDynamicCloud_(new pcl::PointCloud<PointXYZIRT>());
+        pcl::copyPointCloud(*submapRawCloud, *submapRawCloud_);
+        pcl::copyPointCloud(*submapStaticCloud, *submapStaticCloud_);
+        pcl::copyPointCloud(*submapDynamicCloud, *submapDynamicCloud_);
+        RawSubmapSet.push_back(submapRawCloud_);
+        StaticSubmapSet.push_back(submapStaticCloud_);
+        DynamicSubmapSet.push_back(submapDynamicCloud_);
     }
 
     // 以一定的频率可视化动态点云和静态点云
     void visualizeGlobalMapThread() {
-
+        ros::Rate rate(0.5);
+        while (ros::ok()){
+            rate.sleep();
+            publishGlobalMap();
+        }
     }
 
     void publishGlobalMap() {
-
+        logger->info("current global submap set szie: {}", RawSubmapSet.size());
+        pcl::PointCloud<PointXYZIRT>::Ptr globalMapFrames(new pcl::PointCloud<PointXYZIRT>);
+        pcl::PointCloud<PointXYZIRT>::Ptr globalMapFramesDS(new pcl::PointCloud<PointXYZIRT>);
+        for (int i = 0; i < StaticSubmapSet.size(); ++i) {
+            *globalMapFrames += *StaticSubmapSet[i];
+        }
+        pcl::VoxelGrid<PointXYZIRT> downSizeFilterGloablMap;
+        downSizeFilterGloablMap.setLeafSize(0.1, 0.1, 0.1);
+        downSizeFilterGloablMap.setInputCloud(globalMapFrames);
+        downSizeFilterGloablMap.filter(*globalMapFramesDS);
+        logger->info("global map DS size: {}", globalMapFramesDS->points.size());
+        publishCloud(pubGloablCloud, globalMapFramesDS, timeScanCurStamp, "map");
     }
 
-
+    void visibilityCheckThread() {
+        ros::Rate rate(5);
+        while(ros::ok()) {
+            rate.sleep();
+        }
+    }
 };
+
+int main(int argc, char** argv) {
+    ros::init(argc, argv, "octomap_slam");
+
+    pcl::console::setVerbosityLevel(pcl::console::L_ERROR);    
+
+    OctomapSlam os;
+
+    ROS_INFO("\033[1;32m----> Octomap Slam Started.\033[0m");
+
+    std::thread visualizeMapThread(&OctomapSlam::visualizeGlobalMapThread, &os);
+
+    ros::spin();
+
+    visualizeMapThread.join();
+
+    return 0;
+
+}
