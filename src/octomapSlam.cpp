@@ -58,7 +58,7 @@ private:
     int laserInterval = 2;
 
     int laserCount = 0;
-    int curSubmapSzie = 0;
+    int curSubmapSize = 0;
     
 public:
     OctomapSlam() {
@@ -114,7 +114,7 @@ public:
         // 如果需要添加间隔，则在间隔内return
         laserCount++;
         if(laserCount == laserInterval) {
-            curSubmapSzie++;
+            curSubmapSize++;
             laserCount = 0;
             currentCloudMsg = *laserCloudMsg;
             laserCloudIn->clear();
@@ -130,7 +130,7 @@ public:
             // cloud插入到submapRawCloud
             this->insertCloudtoSubmap();
 
-            if(curSubmapSzie < submapCapacity) {
+            if(curSubmapSize < submapCapacity) {
                 return;
             }
             else {
@@ -138,7 +138,7 @@ public:
                 this->splitRawSubmap();
                 // 得到的submapRaw, submapStatic, submapDynami插入到set里面
                 this->saveSubmap();
-                curSubmapSzie = 0;
+                curSubmapSize = 0;
                 resetParameters();
             }
 
