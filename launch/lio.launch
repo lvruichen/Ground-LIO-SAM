@@ -1,0 +1,5 @@
+<launch>
+    <arg name="project" default="lio_sam"/>
+    <param name="configFile" value="$(find lio_sam)/config/config.yaml"/>
+    <node pkg="$(arg project)" type="$(arg project)_scanRegistration" name="$(arg project)_scanRegistration" output="screen"/>
+</launch>

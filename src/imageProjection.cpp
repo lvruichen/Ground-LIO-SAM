@@ -1,6 +1,8 @@
 #include "lio_sam/utility.h"
 #include "lio_sam/cloud_info.h"
 
+// #define DEBUG
+
 // 主要有两个队列，imuQueue和odomQueue，这两个队列缓存接受到的消息，用于后续的点云操作
 
 // 定义的点云数据结构
@@ -17,21 +19,6 @@ POINT_CLOUD_REGISTER_POINT_STRUCT (VelodynePointXYZIRT,
     (uint16_t, ring, ring) (float, time, time)
 )
 
-struct OusterPointXYZIRT {
-    PCL_ADD_POINT4D;
-    float intensity;
-    uint32_t t;
-    uint16_t reflectivity;
-    uint8_t ring;
-    uint16_t noise;
-    uint32_t range;
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-} EIGEN_ALIGN16;
-POINT_CLOUD_REGISTER_POINT_STRUCT(OusterPointXYZIRT,
-    (float, x, x) (float, y, y) (float, z, z) (float, intensity, intensity)
-    (uint32_t, t, t) (uint16_t, reflectivity, reflectivity)
-    (uint8_t, ring, ring) (uint16_t, noise, noise) (uint32_t, range, range)
-)
 
 // Use the Velodyne point format as a common representation
 using PointXYZIRT = VelodynePointXYZIRT;
@@ -70,7 +57,6 @@ private:
     Eigen::Affine3f transStartInverse;
 
     pcl::PointCloud<PointXYZIRT>::Ptr laserCloudIn;
-    pcl::PointCloud<OusterPointXYZIRT>::Ptr tmpOusterCloudIn;
     pcl::PointCloud<PointType>::Ptr   fullCloud;
     pcl::PointCloud<PointType>::Ptr   extractedCloud;
 
@@ -89,6 +75,8 @@ private:
 
     vector<int> columnIdnCountVec;
 
+    std::shared_ptr<spdlog::logger> logger;
+
 
 public:
     ImageProjection():
@@ -104,13 +92,14 @@ public:
         allocateMemory();
         resetParameters();
 
+        logger = spdlog::stdout_color_mt("console");
+
         pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
     }
 
     void allocateMemory()
     {
         laserCloudIn.reset(new pcl::PointCloud<PointXYZIRT>());
-        tmpOusterCloudIn.reset(new pcl::PointCloud<OusterPointXYZIRT>());
         fullCloud.reset(new pcl::PointCloud<PointType>());
         extractedCloud.reset(new pcl::PointCloud<PointType>());
 
@@ -155,23 +144,6 @@ public:
 
         std::lock_guard<std::mutex> lock1(imuLock);
         imuQueue.push_back(thisImu);
-
-        // debug IMU data
-        // cout << std::setprecision(6);
-        // cout << "IMU acc: " << endl;
-        // cout << "x: " << thisImu.linear_acceleration.x << 
-        //       ", y: " << thisImu.linear_acceleration.y << 
-        //       ", z: " << thisImu.linear_acceleration.z << endl;
-        // cout << "IMU gyro: " << endl;
-        // cout << "x: " << thisImu.angular_velocity.x << 
-        //       ", y: " << thisImu.angular_velocity.y << 
-        //       ", z: " << thisImu.angular_velocity.z << endl;
-        // double imuRoll, imuPitch, imuYaw;
-        // tf::Quaternion orientation;
-        // tf::quaternionMsgToTF(thisImu.orientation, orientation);
-        // tf::Matrix3x3(orientation).getRPY(imuRoll, imuPitch, imuYaw);
-        // cout << "IMU roll pitch yaw: " << endl;
-        // cout << "roll: " << imuRoll << ", pitch: " << imuPitch << ", yaw: " << imuYaw << endl << endl;
     }
 
     void odometryHandler(const nav_msgs::Odometry::ConstPtr& odometryMsg)
@@ -207,27 +179,9 @@ public:
         // convert cloud
         currentCloudMsg = std::move(cloudQueue.front());
         cloudQueue.pop_front();
-        if (sensor == SensorType::VELODYNE || sensor == SensorType::LIVOX)
+        if (sensor == SensorType::VELODYNE)
         {
             pcl::moveFromROSMsg(currentCloudMsg, *laserCloudIn);
-        }
-        else if (sensor == SensorType::OUSTER)
-        {
-            // Convert to Velodyne format
-            pcl::moveFromROSMsg(currentCloudMsg, *tmpOusterCloudIn);
-            laserCloudIn->points.resize(tmpOusterCloudIn->size());
-            laserCloudIn->is_dense = tmpOusterCloudIn->is_dense;
-            for (size_t i = 0; i < tmpOusterCloudIn->size(); i++)
-            {
-                auto &src = tmpOusterCloudIn->points[i];
-                auto &dst = laserCloudIn->points[i];
-                dst.x = src.x;
-                dst.y = src.y;
-                dst.z = src.z;
-                dst.intensity = src.intensity;
-                dst.ring = src.ring;
-                dst.time = src.t * 1e-9f;
-            }
         }
         else
         {
@@ -273,7 +227,7 @@ public:
             deskewFlag = -1;
             for (auto &field : currentCloudMsg.fields)
             {
-                if (field.name == "time" || field.name == "t")
+                if (field.name == "time" || field.name == "t" || field.name == "timestamp")
                 {
                     deskewFlag = 1;
                     break;
@@ -527,6 +481,13 @@ public:
     {
         int cloudSize = laserCloudIn->points.size();
         // range image projection
+        #ifdef DEBUG
+            for (int i = 0; i < 1800 * 16; i+= 1) {
+                PointXYZIRT p1 = laserCloudIn->points[i];
+                if(p1.ring == 1)
+                    logger->info("{}th point and time : {}, {}, {}, {}, {}", i, p1.x, p1.y, p1.z, p1.ring, p1.time);
+            }
+        #endif
         for (int i = 0; i < cloudSize; ++i)
         {
             PointType thisPoint;
@@ -547,20 +508,12 @@ public:
                 continue;
 
             int columnIdn = -1;
-            if (sensor == SensorType::VELODYNE || sensor == SensorType::OUSTER)
-            {
-                float horizonAngle = atan2(thisPoint.x, thisPoint.y) * 180 / M_PI;
-                static float ang_res_x = 360.0/float(Horizon_SCAN);
-                columnIdn = -round((horizonAngle-90.0)/ang_res_x) + Horizon_SCAN/2;
-                if (columnIdn >= Horizon_SCAN)
-                    columnIdn -= Horizon_SCAN;
-            }
-            else if (sensor == SensorType::LIVOX)
-            {
-                columnIdn = columnIdnCountVec[rowIdn];
-                columnIdnCountVec[rowIdn] += 1;
-            }
             
+            float horizonAngle = atan2(thisPoint.x, thisPoint.y) * 180 / M_PI;
+            static float ang_res_x = 360.0/float(Horizon_SCAN);
+            columnIdn = -round((horizonAngle-90.0)/ang_res_x) + Horizon_SCAN/2;
+            if (columnIdn >= Horizon_SCAN)
+                columnIdn -= Horizon_SCAN;
             if (columnIdn < 0 || columnIdn >= Horizon_SCAN)
                 continue;
 

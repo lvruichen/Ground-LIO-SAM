@@ -78,7 +78,6 @@ public:
         laserInterval = data["laserInterval"].get<int>();
         unique_ptr<octomap::OcTree> ptr(new octomap::OcTree(data["resolution"].get<double>()));
         tree = move(ptr);
-        // tree = make_unique<octomap::OcTree>(new oc   tomap::OcTree(treeResolution));
         tree->setProbHit(data["probability_hit"].get<float>());
         tree->setProbMiss(data["probability_miss"].get<float>());
         tree->setClampingThresMin(data["threshold_min"].get<float>());
