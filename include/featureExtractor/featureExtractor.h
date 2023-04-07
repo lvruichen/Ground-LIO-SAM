@@ -79,8 +79,8 @@ public:
 
 private:
     pcl::PointCloud<PointXYZIRT>::Ptr rawCloud;
-    pcl::PointCloud<PointType>::Ptr fullCloud;
-    pcl::PointCloud<PointType>::Ptr extractedCloud;
+    pcl::PointCloud<PointType>::Ptr cornerCloud;
+    pcl::PointCloud<PointType>::Ptr surfCloud;
 
     std::vector<pcl::PointCloud<PointType>::Ptr> vlines;
     std::vector<std::vector<int>> vcorner;

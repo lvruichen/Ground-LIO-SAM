@@ -13,10 +13,8 @@ FeatureExtractor::~FeatureExtractor() {
 
 void FeatureExtractor::allocateMemory() {
     rawCloud.reset(new pcl::PointCloud<PointXYZIRT>());
-    fullCloud.reset(new pcl::PointCloud<PointType>());
-    extractedCloud.reset(new pcl::PointCloud<PointType>());
-
-    fullCloud->points.resize(N_SCAN * Horizon_SCAN);
+    cornerCloud.reset(new pcl::PointCloud<PointType>());
+    surfCloud.reset(new pcl::PointCloud<PointType>());
 
     vlines.resize(N_SCAN);
     for (auto& ptr : vlines) {
@@ -30,9 +28,6 @@ void FeatureExtractor::allocateMemory() {
 
 void FeatureExtractor::resetParameters() {
     rawCloud->clear();
-    fullCloud->clear();
-    extractedCloud->clear();
-
     for (auto& ptr : vlines) {
         ptr->clear();
     }
@@ -42,7 +37,8 @@ void FeatureExtractor::resetParameters() {
     for (auto& v : vsurf) {
         v.clear();
     }
-
+    cornerCloud->clear();
+    surfCloud->clear();
 }
 
 // 对每个激光束操作，提取其中的角点和平面点
@@ -206,8 +202,8 @@ void FeatureExtractor::detectFeaturePoint(pcl::PointCloud<PointType>::Ptr& cloud
             }
         }
     }
-    
-    }
+}
+
 void FeatureExtractor::calculateSmoothness() {
 
 }
