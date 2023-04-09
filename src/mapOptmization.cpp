@@ -245,6 +245,7 @@ public:
         pcl::fromROSMsg(msgIn->cloud_corner,  *laserCloudCornerLast);
         pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);
 
+
         std::lock_guard<std::mutex> lock(mtx);
 
         static double timeLastProcessing = -1;
@@ -267,6 +268,7 @@ public:
             publishOdometry();
 
             publishFrames();
+
         }
     }
 

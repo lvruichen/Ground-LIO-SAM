@@ -8,6 +8,8 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl/filters/filter.h>
+#include <pcl/filters/voxel_grid.h>
 #include <iostream>
 #include <opencv2/core.hpp>
 #include <memory>
@@ -79,8 +81,8 @@ public:
 
 private:
     pcl::PointCloud<PointXYZIRT>::Ptr rawCloud;
-    pcl::PointCloud<PointType>::Ptr cornerCloud;
-    pcl::PointCloud<PointType>::Ptr surfCloud;
+    // pcl::PointCloud<PointType>::Ptr cornerCloud;
+    // pcl::PointCloud<PointType>::Ptr surfCloud;
 
     std::vector<pcl::PointCloud<PointType>::Ptr> vlines;
     std::vector<std::vector<int>> vcorner;
@@ -89,6 +91,8 @@ private:
     std::shared_ptr<spdlog::logger> logger;
 
     cv::Mat rangeMat;
+
+    pcl::VoxelGrid<PointType> downSizeFilter;
 
     int ringFlag{-1};
     float lidarMinRange = 1;

@@ -3,7 +3,7 @@
 FeatureExtractor::FeatureExtractor() {
     pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
     logger = spdlog::stdout_color_mt("console2");
-
+    downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
     allocateMemory();
 }
 
@@ -13,8 +13,8 @@ FeatureExtractor::~FeatureExtractor() {
 
 void FeatureExtractor::allocateMemory() {
     rawCloud.reset(new pcl::PointCloud<PointXYZIRT>());
-    cornerCloud.reset(new pcl::PointCloud<PointType>());
-    surfCloud.reset(new pcl::PointCloud<PointType>());
+    // cornerCloud.reset(new pcl::PointCloud<PointType>());
+    // surfCloud.reset(new pcl::PointCloud<PointType>());
 
     vlines.resize(N_SCAN);
     for (auto& ptr : vlines) {
@@ -37,8 +37,8 @@ void FeatureExtractor::resetParameters() {
     for (auto& v : vsurf) {
         v.clear();
     }
-    cornerCloud->clear();
-    surfCloud->clear();
+    // cornerCloud->clear();
+    // surfCloud->clear();
 }
 
 // 对每个激光束操作，提取其中的角点和平面点
@@ -255,8 +255,27 @@ void FeatureExtractor::featureExtract(sensor_msgs::PointCloud2 &msgIn, pcl::Poin
         thread[i].join();
     }
 
+    cornerCloud->clear();
+    surfCloud->clear();
+    pcl::PointCloud<PointType>::Ptr surfCloudOri(new pcl::PointCloud<PointType>());
     for (int i = 0; i < N_SCAN; ++i) {
-        logger->info("ring {} detected {} corner points", i, vcorner[i].size());
-    }
+        // the corner points and surf points in ring i
+        for (int cornerIdx = 0; cornerIdx < vcorner[i].size(); ++cornerIdx) {
+            int id = vcorner[i][cornerIdx];
+            cornerCloud->push_back(vlines[i]->points[id]);
+        }
+        for (int surfIdx = 0; surfIdx < vsurf[i].size(); ++surfIdx) {
+            int id = vsurf[i][surfIdx];
+            surfCloudOri->push_back(vlines[i]->points[id]);
+        }
+    }    
+
+    
+    downSizeFilter.setInputCloud(surfCloudOri);
+    downSizeFilter.filter(*surfCloud);
+
+    logger->info("detected {} corner points", cornerCloud->size());
+    logger->info("detected {} surf points", surfCloud->size());    
+
     resetParameters();
 }
