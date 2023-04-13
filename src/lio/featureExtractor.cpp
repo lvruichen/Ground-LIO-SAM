@@ -1,8 +1,7 @@
 #include "featureExtractor/featureExtractor.h"
 
-FeatureExtractor::FeatureExtractor() {
-    pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
-    logger = spdlog::stdout_color_mt("console2");
+FeatureExtractor::FeatureExtractor(std::shared_ptr<spdlog::logger> _logger) {
+    logger = _logger;
     downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
     allocateMemory();
 }
@@ -204,10 +203,6 @@ void FeatureExtractor::detectFeaturePoint(pcl::PointCloud<PointType>::Ptr& cloud
     }
 }
 
-void FeatureExtractor::calculateSmoothness() {
-
-}
-
 void FeatureExtractor::featureExtract(sensor_msgs::PointCloud2 &msgIn, pcl::PointCloud<pcl::PointXYZI>::Ptr 
                         cornerCloud, pcl::PointCloud<pcl::PointXYZI>::Ptr surfCloud) {
     auto msg1 = msgIn;
@@ -273,9 +268,8 @@ void FeatureExtractor::featureExtract(sensor_msgs::PointCloud2 &msgIn, pcl::Poin
     
     downSizeFilter.setInputCloud(surfCloudOri);
     downSizeFilter.filter(*surfCloud);
-
-    logger->info("detected {} corner points", cornerCloud->size());
-    logger->info("detected {} surf points", surfCloud->size());    
+    // logger->info("detected {} corner points", cornerCloud->size());
+    // logger->info("detected {} surf points", surfCloud->size());    
 
     resetParameters();
 }

@@ -50,7 +50,7 @@ using CloudType = pcl::PointCloud<PointType>;
 
 class FeatureExtractor{
 public:
-    FeatureExtractor();
+    FeatureExtractor(std::shared_ptr<spdlog::logger> _logger);
 
     ~FeatureExtractor();
 

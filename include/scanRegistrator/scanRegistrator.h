@@ -22,7 +22,7 @@ public:
         
         pubLaserCloudInfo = nh.advertise<lio_sam::cloud_info> ("lio_sam/feature/cloud_info", 1);
 
-        subImu        = nh.subscribe<sensor_msgs::Imu>("/imu/data", 2000, &scanRegistrator::imuHandler, this, ros::TransportHints().tcpNoDelay());
+        // subImu        = nh.subscribe<sensor_msgs::Imu>("/imu/data", 2000, &scanRegistrator::imuHandler, this, ros::TransportHints().tcpNoDelay());
         subOdom       = nh.subscribe<nav_msgs::Odometry>("/lio_sam/odometry/imu_incremental", 2000, &scanRegistrator::odometryHandler, this, ros::TransportHints().tcpNoDelay());
 
 
@@ -40,11 +40,11 @@ public:
         N_SCAN = static_cast<int>(fs["N_SCAN"]);
         Horizon_SCAN = static_cast<int>(fs["Horizon_SCAN"]);
 
-        featureExtractorPtr = new FeatureExtractor();
+        featureExtractorPtr = new FeatureExtractor(logger);
 
         allocateMemory();
 
-        };
+    };
 
     ~scanRegistrator() {
 
@@ -71,7 +71,7 @@ public:
         publishCloud(pubCornerCloud, cornerCloud, cloudHeader.stamp, cloudHeader.frame_id);
         publishCloud(pubSurfCloud, surfCloud, cloudHeader.stamp, cloudHeader.frame_id);
 
-
+        // test
         sensor_msgs::PointCloud2 tempCloud1;
         tempCloud1.header = laserCloudMsg->header;
         pcl::toROSMsg(*cornerCloud, tempCloud1);
@@ -106,19 +106,7 @@ public:
         odomQueue.push_back(*odometryMsg);
     }
 
-    template<typename T>
-    sensor_msgs::PointCloud2 publishCloud(const ros::Publisher& thisPub, const T& thisCloud, ros::Time thisStamp, std::string thisFrame)
-    {
-        sensor_msgs::PointCloud2 tempCloud;
-        pcl::toROSMsg(*thisCloud, tempCloud);
-        tempCloud.header.stamp = thisStamp;
-        tempCloud.header.frame_id = thisFrame;
-        if (thisPub.getNumSubscribers() != 0)
-            thisPub.publish(tempCloud);
-        return tempCloud;
-    }   
-
-
+    
 
 private:
     ros::NodeHandle nh;
@@ -153,15 +141,3 @@ private:
 
 
 };
-
-
-int main(int argc, char** argv) {
-    ros::init(argc, argv, "ScanRegistration");
-
-    scanRegistrator SR;
-
-    ROS_INFO("\033[1;32m----> ScanRegistration Started.\033[0m");
-
-    ros::spin();
-    return 0; 
-}

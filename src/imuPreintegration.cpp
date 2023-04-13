@@ -464,7 +464,7 @@ public:
 
     // 将原始的imu数据push到imuQueOpt和imuQueImu这两个队列里，然后利用imu预积分得到imu里程计
     void imuHandler(const sensor_msgs::Imu::ConstPtr& imu_raw)
-    {
+    { 
         std::lock_guard<std::mutex> lock(mtx);
 
         sensor_msgs::Imu thisImu = imuConverter(*imu_raw);
