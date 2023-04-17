@@ -19,7 +19,7 @@
 #include <nav_msgs/Path.h>
 #include <std_msgs/Float64MultiArray.h>
 
-#include <opencv2/opencv.hpp>
+
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -34,6 +34,9 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/crop_box.h> 
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl/kdtree/kdtree_flann.h>
+
+#include <opencv2/imgproc.hpp>
 // logger
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -53,6 +56,13 @@
 #include <gtsam/nonlinear/ISAM2.h>
 
 #include "mapManager/mapManager.h"
+
+#include <tf/LinearMath/Quaternion.h>
+#include <tf/transform_listener.h>
+#include <tf/transform_datatypes.h>
+#include <tf/transform_broadcaster.h>
+
+#include "imuIntegrator/imuIntegrator.h"
 
 using std::cout;
 using std::endl;
@@ -85,6 +95,15 @@ public:
 
     double timeLaserInfoCur;
     float transformTobeMapped[6]{0, 0, 0, 0, 0, 0};
+    bool isDegenerate = false;
+    bool propagateIMUFlag = false;
+
+    cv::Mat matP;
+
+    int laserCloudCornerLastDSNum = 0;
+    int laserCloudSurfLastDSNum = 0;
+    int N_SCAN = 16;
+    int Horizon_SCAN = 1800;
 
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLast; // corner feature set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLast; // surf feature set from odoOptimization
@@ -94,19 +113,104 @@ public:
     pcl::PointCloud<PointType>::Ptr localCornerCloud;
     pcl::PointCloud<PointType>::Ptr localSurfCloud;
 
+    pcl::KdTreeFLANN<PointType>::Ptr kdtreeCornerFromMap;
+    pcl::KdTreeFLANN<PointType>::Ptr kdtreeSurfFromMap;
+
     Eigen::Affine3f transPointAssociateToMap;
     Eigen::Affine3f incrementalOdometryAffineFront;
     Eigen::Affine3f incrementalOdometryAffineBack;
+
+    pcl::PointCloud<PointType>::Ptr laserCloudOri;
+    pcl::PointCloud<PointType>::Ptr coeffSel;
+
+    std::vector<PointType> laserCloudOriCornerVec; // corner point holder for parallel computation
+    std::vector<PointType> coeffSelCornerVec;
+    std::vector<bool> laserCloudOriCornerFlag;
+    std::vector<PointType> laserCloudOriSurfVec; // surf point holder for parallel computation
+    std::vector<PointType> coeffSelSurfVec;
+    std::vector<bool> laserCloudOriSurfFlag;
+
+    nav_msgs::Odometry laserOdometryROS;
+    nav_msgs::Odometry laserOdomIncremental;
+
+
 public:
     PoseEstimator(std::shared_ptr<spdlog::logger> _logger);
     ~PoseEstimator();
     void allocateMemory();
-    void estimate(KeyFrame& keyFrame);
-    void updateInitialGuess(KeyFrame& keyFrame);
-    void extractSurroundKeyFrames(KeyFrame& keyFrame);
-    void downsampleCurrentScan(KeyFrame& keyFrame);
-    void scan2MapOptimization();
+    void estimate(KeyFrame& _keyFrame);
+    void updateInitialGuess(KeyFrame& _keyFrame);
+    void extractSurroundKeyFrames(KeyFrame& _keyFrame);
+    void downsampleCurrentScan(KeyFrame& _keyFrame);
+    void scan2MapOptimization(KeyFrame& _keyFrame);
+    void cornerOptimization();
+    void surfOptimization();
+    void combineOptimizationCoeffs();
+    bool LMOptimization(int _count);
+    void transformUpdate(KeyFrame& _keyFrame);
+    void saveKeyFramesAndFactors(KeyFrame& _keyFrame);
 
+    void propagateIMU(IMUPreIntegrator* _imuIntegratorPtr, KeyFrame& _keyFrame) {
+        laserOdometryROS.header.stamp.fromSec(timeLaserInfoCur);
+        laserOdometryROS.header.frame_id = "odom";
+        laserOdometryROS.child_frame_id = "odom_mapping";
+        laserOdometryROS.pose.pose.position.x = transformTobeMapped[3];
+        laserOdometryROS.pose.pose.position.y = transformTobeMapped[4];
+        laserOdometryROS.pose.pose.position.z = transformTobeMapped[5];
+        laserOdometryROS.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
+
+        // Publish odometry for ROS (incremental)
+        static bool lastIncreOdomPubFlag = false;
+        static nav_msgs::Odometry laserOdomIncremental; // incremental odometry msg
+        static Eigen::Affine3f increOdomAffine; // incremental odometry in affine
+        if (lastIncreOdomPubFlag == false)
+        {
+            lastIncreOdomPubFlag = true;
+            laserOdomIncremental = laserOdometryROS;
+            increOdomAffine = trans2Affine3f(transformTobeMapped);
+        } else {
+            Eigen::Affine3f affineIncre = incrementalOdometryAffineFront.inverse() * incrementalOdometryAffineBack;
+            increOdomAffine = increOdomAffine * affineIncre;
+            float x, y, z, roll, pitch, yaw;
+            pcl::getTranslationAndEulerAngles (increOdomAffine, x, y, z, roll, pitch, yaw);
+            if (_keyFrame.imuAvailable == true)
+            {
+                if (std::abs(_keyFrame.imuPitchInit) < 1.4)
+                {
+                    double imuWeight = 0.1;
+                    tf::Quaternion imuQuaternion;
+                    tf::Quaternion transformQuaternion;
+                    double rollMid, pitchMid, yawMid;
+
+                    // slerp roll
+                    transformQuaternion.setRPY(roll, 0, 0);
+                    imuQuaternion.setRPY(_keyFrame.imuRollInit, 0, 0);
+                    tf::Matrix3x3(transformQuaternion.slerp(imuQuaternion, imuWeight)).getRPY(rollMid, pitchMid, yawMid);
+                    roll = rollMid;
+
+                    // slerp pitch
+                    transformQuaternion.setRPY(0, pitch, 0);
+                    imuQuaternion.setRPY(0, _keyFrame.imuPitchInit, 0);
+                    tf::Matrix3x3(transformQuaternion.slerp(imuQuaternion, imuWeight)).getRPY(rollMid, pitchMid, yawMid);
+                    pitch = pitchMid;
+                }
+            }
+            laserOdomIncremental.header.stamp.fromSec(timeLaserInfoCur);
+            laserOdomIncremental.header.frame_id = "odom";
+            laserOdomIncremental.child_frame_id = "odom_mapping";
+            laserOdomIncremental.pose.pose.position.x = x;
+            laserOdomIncremental.pose.pose.position.y = y;
+            laserOdomIncremental.pose.pose.position.z = z;
+            laserOdomIncremental.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, yaw);
+            if (isDegenerate)
+                laserOdomIncremental.pose.covariance[0] = 1;
+            else
+                laserOdomIncremental.pose.covariance[0] = 0;
+        }
+
+        _imuIntegratorPtr->setOdomMsg(laserOdometryROS);
+        _imuIntegratorPtr->pushOdomIncreMsg(laserOdomIncremental);
+    }
 
     gtsam::Pose3 pclPointTogtsamPose3(PointTypePose thisPoint) {
         return gtsam::Pose3(gtsam::Rot3::RzRyRx(double(thisPoint.roll), double(thisPoint.pitch), double(thisPoint.yaw)),
@@ -136,6 +240,63 @@ public:
         thisPose6D.yaw   = transformIn[2];
         return thisPose6D;
     }
+
+    void pointAssociateToMap(PointType const * const pi, PointType * const po) {
+        po->x = transPointAssociateToMap(0,0) * pi->x + transPointAssociateToMap(0,1) * pi->y + transPointAssociateToMap(0,2) * pi->z + transPointAssociateToMap(0,3);
+        po->y = transPointAssociateToMap(1,0) * pi->x + transPointAssociateToMap(1,1) * pi->y + transPointAssociateToMap(1,2) * pi->z + transPointAssociateToMap(1,3);
+        po->z = transPointAssociateToMap(2,0) * pi->x + transPointAssociateToMap(2,1) * pi->y + transPointAssociateToMap(2,2) * pi->z + transPointAssociateToMap(2,3);
+        po->intensity = pi->intensity;
+    }
+
+    void updatePointAssociateToMap() {
+        transPointAssociateToMap = trans2Affine3f(transformTobeMapped);
+    }
+
+    float constraintTransformation(float value, float limit)
+    {
+        if (value < -limit)
+            value = -limit;
+        if (value > limit)
+            value = limit;
+
+        return value;
+    }
+
+    bool saveFrame() {
+        if (mapManager->cloudKeyPoses3D->points.empty())
+            return true;
+
+        Eigen::Affine3f transStart = pclPointToAffine3f(mapManager->cloudKeyPoses6D->back());
+        Eigen::Affine3f transFinal = pcl::getTransformation(transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5], 
+                                                            transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
+        Eigen::Affine3f transBetween = transStart.inverse() * transFinal;
+        float x, y, z, roll, pitch, yaw;
+        pcl::getTranslationAndEulerAngles(transBetween, x, y, z, roll, pitch, yaw);
+
+        if (abs(roll)  < 0.2 &&
+            abs(pitch) < 0.2 && 
+            abs(yaw)   < 0.2 &&
+            sqrt(x*x + y*y + z*z) < 1)
+            return false;
+        return true;
+    }
+
+    void addOdomFactor() {
+        if (mapManager->cloudKeyPoses3D->points.empty())
+        {
+            noiseModel::Diagonal::shared_ptr priorNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1e8, 1e8, 1e8).finished()); // rad*rad, meter*meter
+            gtSAMgraph.add(PriorFactor<Pose3>(0, trans2gtsamPose(transformTobeMapped), priorNoise));
+            initialEstimate.insert(0, trans2gtsamPose(transformTobeMapped));
+        }else{
+            noiseModel::Diagonal::shared_ptr odometryNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
+            gtsam::Pose3 poseFrom = pclPointTogtsamPose3(mapManager->cloudKeyPoses6D->points.back());
+            gtsam::Pose3 poseTo   = trans2gtsamPose(transformTobeMapped);
+            gtSAMgraph.add(BetweenFactor<Pose3>(mapManager->cloudKeyPoses3D->size()-1, mapManager->cloudKeyPoses3D->size(), poseFrom.between(poseTo), odometryNoise));
+            initialEstimate.insert(mapManager->cloudKeyPoses3D->size(), poseTo);
+        }
+    }
+
+
 };
 
 #endif

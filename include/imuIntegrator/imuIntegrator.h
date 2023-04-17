@@ -3,6 +3,9 @@
 // 获得当前时刻的位姿
 // 获取当前时刻的imu的偏置
 // 类中保持两个imuIntegrator，一个用来优化，一个用来传播
+#ifndef __IMUINTEGRATOR_HH__
+#define __IMUINTEGRATOR_HH__
+
 #include <mutex>
 #include <queue>
 #include <ros/ros.h>
@@ -103,3 +106,5 @@ public:
     void pushOdomIncreMsg(const nav_msgs::Odometry& odomMsg);
     void setOdomMsg(const nav_msgs::Odometry& odomMsg);
 };
+
+#endif

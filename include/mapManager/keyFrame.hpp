@@ -24,14 +24,14 @@ public:
     float roll;
     float pitch;
     float yaw;
-    float time;
+    double time; // mind the precision
 
     float imuRollInit;
     float imuPitchInit;
     float imuYawInit;
 
     bool odomAvailable{false};
-    bool imuAvailable{true};
+    bool imuAvailable{false};
 };
 #endif
 

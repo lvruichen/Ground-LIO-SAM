@@ -4,6 +4,7 @@ project(lio_sam)
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++14")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g -pthread")
+set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 find_package(catkin REQUIRED COMPONENTS
   tf
@@ -27,6 +28,7 @@ find_package(OpenCV REQUIRED QUIET)
 find_package(GTSAM REQUIRED QUIET)
 find_package(Boost REQUIRED COMPONENTS timer)
 find_package(octomap REQUIRED)
+find_package(Threads REQUIRED)
 
 add_message_files(
   DIRECTORY msg
@@ -85,14 +87,14 @@ link_directories(
 ###########
 
 # Range Image Projection
-# add_executable(${PROJECT_NAME}_imageProjection src/imageProjection.cpp)
-# add_dependencies(${PROJECT_NAME}_imageProjection ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
-# target_link_libraries(${PROJECT_NAME}_imageProjection ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+add_executable(${PROJECT_NAME}_imageProjection src/imageProjection.cpp)
+add_dependencies(${PROJECT_NAME}_imageProjection ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
+target_link_libraries(${PROJECT_NAME}_imageProjection ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 
 # # Feature Association
-# add_executable(${PROJECT_NAME}_featureExtraction src/featureExtraction.cpp)
-# add_dependencies(${PROJECT_NAME}_featureExtraction ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
-# target_link_libraries(${PROJECT_NAME}_featureExtraction ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+add_executable(${PROJECT_NAME}_featureExtraction src/featureExtraction.cpp)
+add_dependencies(${PROJECT_NAME}_featureExtraction ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
+target_link_libraries(${PROJECT_NAME}_featureExtraction ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 
 # # Mapping Optimization
 add_executable(${PROJECT_NAME}_mapOptmization src/mapOptmization.cpp)
@@ -101,12 +103,12 @@ target_compile_options(${PROJECT_NAME}_mapOptmization PRIVATE ${OpenMP_CXX_FLAGS
 target_link_libraries(${PROJECT_NAME}_mapOptmization Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam)
 
 # # IMU Preintegration
-# add_executable(${PROJECT_NAME}_imuPreintegration src/imuPreintegration.cpp)
-# target_link_libraries(${PROJECT_NAME}_imuPreintegration Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} gtsam)
+add_executable(${PROJECT_NAME}_imuPreintegration src/imuPreintegration.cpp)
+target_link_libraries(${PROJECT_NAME}_imuPreintegration Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} gtsam)
 
 # #Octomap SLam
-# add_executable(${PROJECT_NAME}_octomapSlam src/octomapSlam.cpp)
-# target_link_directories(${PROJECT_NAME}_octomapSlam PUBLIC /home/eric/a_ros_ws/lio_sam_lrc/devel/lib ${OCTOMAP_INCLUDE_DIRS})
-# target_link_libraries(${PROJECT_NAME}_octomapSlam Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OCTOMAP_LIBRARIES} pcl_utils)
+add_executable(${PROJECT_NAME}_octomapSlam src/octomapSlam.cpp)
+target_link_directories(${PROJECT_NAME}_octomapSlam PUBLIC /home/eric/a_ros_ws/lio_sam_lrc/devel/lib ${OCTOMAP_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME}_octomapSlam Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OCTOMAP_LIBRARIES} pcl_utils)
 
 add_subdirectory(src/lio)

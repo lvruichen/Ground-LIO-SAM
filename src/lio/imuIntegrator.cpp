@@ -257,6 +257,8 @@ void IMUPreIntegrator::pushOdomIncreMsg(const nav_msgs::Odometry& odomMsg){
         else
             break;
     }
+    logger->info("imu time front: {}, imu time end: {}, lidar time: {}, imu size: {}", 
+    imuQueOpt.front().header.stamp.toSec(), imuQueOpt.back().header.stamp.toSec(), currentCorrectionTime, imuQueOpt.size());
     // 将当前时刻的imu的测量值加入到因子图中，执行优化
     // add imu factor to graph
     const gtsam::PreintegratedImuMeasurements& preint_imu = dynamic_cast<const gtsam::PreintegratedImuMeasurements&>(*imuIntegratorOpt_);

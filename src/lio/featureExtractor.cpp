@@ -4,6 +4,7 @@ FeatureExtractor::FeatureExtractor(std::shared_ptr<spdlog::logger> _logger) {
     logger = _logger;
     downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
     allocateMemory();
+            pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 }
 
 FeatureExtractor::~FeatureExtractor() {

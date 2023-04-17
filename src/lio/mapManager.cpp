@@ -65,9 +65,9 @@ void MapManager::saveKeyFrame(KeyFrame& _keyFrame) {
     cornerCloudKeyFrames.push_back(thisSurfKeyFrame);
 }
 
-bool MapManager::extractSurroundingKeyFrames(KeyFrame& _keyFrame) {
+void MapManager::extractSurroundingKeyFrames(KeyFrame& _keyFrame) {
     if (cloudKeyPoses3D->empty())
-        return false;
+        return;
     pcl::PointCloud<PointType>::Ptr surroundingKeyPoses(new pcl::PointCloud<PointType>());
     pcl::PointCloud<PointType>::Ptr surroundingKeyPosesDS(new pcl::PointCloud<PointType>());
     std::vector<int> pointSearchInd;
@@ -110,4 +110,5 @@ bool MapManager::extractSurroundingKeyFrames(KeyFrame& _keyFrame) {
                 laserCloudMapContainer.clear();
         }
     }
+    return;
 }

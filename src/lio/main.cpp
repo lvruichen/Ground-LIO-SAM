@@ -7,26 +7,35 @@
 #include <queue>
 #include <mutex>
 
-// test
-#include "lio_sam/utility.h"
-#include "lio_sam/cloud_info.h"
-
 using PointType = pcl::PointXYZI;
 using CloudType = pcl::PointCloud<PointType>;
 using std::cout;
 using std::endl;
 
-// template<typename T>
-// sensor_msgs::PointCloud2 publishCloud(const ros::Publisher& thisPub, const T& thisCloud, ros::Time thisStamp, std::string thisFrame)
-// {
-//     sensor_msgs::PointCloud2 tempCloud;
-//     pcl::toROSMsg(*thisCloud, tempCloud);
-//     tempCloud.header.stamp = thisStamp;
-//     tempCloud.header.frame_id = thisFrame;
-//     if (thisPub.getNumSubscribers() != 0)
-//         thisPub.publish(tempCloud);
-//     return tempCloud;
-// }   
+template<typename T>
+sensor_msgs::PointCloud2 publishCloud(const ros::Publisher& thisPub, const T& thisCloud, ros::Time thisStamp, std::string thisFrame)
+{
+    sensor_msgs::PointCloud2 tempCloud;
+    pcl::toROSMsg(*thisCloud, tempCloud);
+    tempCloud.header.stamp = thisStamp;
+    tempCloud.header.frame_id = thisFrame;
+    if (thisPub.getNumSubscribers() != 0)
+        thisPub.publish(tempCloud);
+    return tempCloud;
+}   
+
+template<typename T>
+void imuRPY2rosRPY(sensor_msgs::Imu *thisImuMsg, T *rosRoll, T *rosPitch, T *rosYaw)
+{
+    double imuRoll, imuPitch, imuYaw;
+    tf::Quaternion orientation;
+    tf::quaternionMsgToTF(thisImuMsg->orientation, orientation);
+    tf::Matrix3x3(orientation).getRPY(imuRoll, imuPitch, imuYaw);
+
+    *rosRoll = imuRoll;
+    *rosPitch = imuPitch;
+    *rosYaw = imuYaw;
+}
 
 ros::Publisher pubCornerCloud;
 ros::Publisher pubSurfCloud;
@@ -36,32 +45,25 @@ FeatureExtractor* featureExtractorPtr;
 IMUPreIntegrator* imuIntegratorPtr;
 PoseEstimator* poseEstimatorPtr;
 
-
 std::shared_ptr<spdlog::logger> logger;
 
 std::mutex lidarQueMutex;
 std::mutex imuQueMutex;
 std::mutex imuInitMutex;
 std::mutex odomIncreMutex;
+std::mutex keyFrameMutex;
 
 std::queue<sensor_msgs::PointCloud2ConstPtr> lidarMsgQueue;
 std::queue<sensor_msgs::Imu> imuMsgQueue;
 std::queue<sensor_msgs::Imu> imuInitQueue;
 std::queue<nav_msgs::Odometry> odomIncreQueue;
-
+std::queue<std::shared_ptr<KeyFrame>> keyFrameQueue;
 
 sensor_msgs::PointCloud2 curCloudMsg;
 std_msgs::Header curCloudHeader;
 
-CloudType::Ptr cornerCloud;
-CloudType::Ptr surfCloud;
-
 nav_msgs::Odometry lidarIncreOdom;
 nav_msgs::Odometry imuOdom;
-
-bool firstImuMsgFlag{false};
-
-
 
 bool newLidarCloud{false};
 double curLidarTime = -1;
@@ -97,7 +99,6 @@ sensor_msgs::Imu imuConverter(const sensor_msgs::Imu& imu_in) {
         ROS_ERROR("Invalid quaternion, please use a 9-axis IMU!");
         ros::shutdown();
     }
-
     return imu_out;
 }
 
@@ -112,21 +113,12 @@ void imuHandler(const sensor_msgs::Imu::ConstPtr& imuMsg) {
     std::unique_lock<std::mutex> imuInitLock(imuInitMutex);
     imuInitQueue.push(thisImu);
     imuMsgQueue.push(thisImu);
-    firstImuMsgFlag = true;
-}
-
-void odomIncreHandler(const nav_msgs::Odometry::ConstPtr& odomMsg) {
-    imuIntegratorPtr->pushOdomIncreMsg(*odomMsg);
-}
-
-void odomHandler(const nav_msgs::Odometry::ConstPtr& odomMsg) {
-    imuIntegratorPtr->setOdomMsg(*odomMsg);
 }
 
 void preIntegrationThread() {
     while (ros::ok()) {
         std::unique_lock<std::mutex> imuLock(imuQueMutex);
-        while (!imuMsgQueue.empty()) {
+        if (!imuMsgQueue.empty()) {
             sensor_msgs::Imu thisImu = imuMsgQueue.front();
             imuIntegratorPtr->pushImuMsg(thisImu, lidarIncreOdom, imuOdom); 
             std::unique_lock<std::mutex> odomLock(odomIncreMutex);
@@ -136,11 +128,33 @@ void preIntegrationThread() {
             static int count = 0;
             count++;
             if (count % 200 == 0) {
-                logger->info("imu_odom: {}, {}, {}", imuOdom.pose.pose.position.x, imuOdom.pose.pose.position.y, imuOdom.pose.pose.position.z);
-                logger->info("laserOdometry: {}, {}, {}", lidarIncreOdom.pose.pose.position.x, lidarIncreOdom.pose.pose.position.y, lidarIncreOdom.pose.pose.position.z);
+                // logger->info("imu_odom: {}, {}, {}", imuOdom.pose.pose.position.x, imuOdom.pose.pose.position.y, imuOdom.pose.pose.position.z);
+                // logger->info("laserOdometry: {}, {}, {}", lidarIncreOdom.pose.pose.position.x, lidarIncreOdom.pose.pose.position.y, lidarIncreOdom.pose.pose.position.z);
                 count = 0;
             }   
         }
+    }
+}
+
+void mapOptimizationThread() {
+    while (ros::ok()) {
+        std::unique_lock<std::mutex> keyFrameLock(keyFrameMutex);
+        if (!keyFrameQueue.empty()) {
+            std::shared_ptr<KeyFrame> thisKeyFrame = keyFrameQueue.front();
+            keyFrameQueue.pop();
+            keyFrameLock.unlock();
+            poseEstimatorPtr->estimate(*thisKeyFrame);
+            if (poseEstimatorPtr->propagateIMUFlag == true) {
+                poseEstimatorPtr->propagateIMU(imuIntegratorPtr, *thisKeyFrame);
+            }            
+            // logger->info("transformTobeMapped: {}, {}, {}, {}, {}, {}", 
+            // poseEstimatorPtr->transformTobeMapped[0], 
+            // poseEstimatorPtr->transformTobeMapped[1], 
+            // poseEstimatorPtr->transformTobeMapped[2],
+            // poseEstimatorPtr->transformTobeMapped[3], 
+            // poseEstimatorPtr->transformTobeMapped[4], 
+            // poseEstimatorPtr->transformTobeMapped[5]);
+        }        
     }
 }
 
@@ -158,8 +172,13 @@ void process() {
         lidarLock.unlock();
 
         if (newLidarCloud) {
+        CloudType::Ptr cornerCloud;
+        CloudType::Ptr surfCloud;
+
+        cornerCloud.reset(new CloudType());
+        surfCloud.reset(new CloudType());
+
         featureExtractorPtr->featureExtract(curCloudMsg, cornerCloud, surfCloud);
-        // logger->info("corner cloud size: {}, surf cloud size: {}", cornerCloud->size(), surfCloud->size());
         publishCloud(pubCornerCloud, cornerCloud, curCloudHeader.stamp, curCloudHeader.frame_id);
         publishCloud(pubSurfCloud, surfCloud, curCloudHeader.stamp, curCloudHeader.frame_id);
         
@@ -188,72 +207,32 @@ void process() {
             currentImuMsg = imuInitQueue.front();
         }
         imuInitLock.unlock();
-        
-        // test
-        lio_sam::cloud_info cloudInfo;
-        cloudInfo.header = curCloudHeader;
-        sensor_msgs::PointCloud2 tempCloud1;
-        pcl::toROSMsg(*cornerCloud, tempCloud1);
-        cloudInfo.cloud_corner = tempCloud1;
 
-        sensor_msgs::PointCloud2 tempCloud2;
-        pcl::toROSMsg(*surfCloud, tempCloud2);
-        cloudInfo.cloud_surface = tempCloud2;
+        // for mapOptimization
+        std::shared_ptr<KeyFrame> keyFrame(new KeyFrame());
+        keyFrame->cornerCloudDS = cornerCloud;
+        keyFrame->surfCloudDS   = surfCloud;
+        keyFrame->time = curCloudHeader.stamp.toSec();
 
         if(odomAvailable) {
             tf::Quaternion orientation;
             tf::quaternionMsgToTF(currentImuOdom.pose.pose.orientation, orientation);
             double roll, pitch, yaw;
             tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
-
-            // Initial guess used in mapOptimization
-            cloudInfo.initialGuessX = currentImuOdom.pose.pose.position.x;
-            cloudInfo.initialGuessY = currentImuOdom.pose.pose.position.y;
-            cloudInfo.initialGuessZ = currentImuOdom.pose.pose.position.z;
-            cloudInfo.initialGuessRoll  = roll;
-            cloudInfo.initialGuessPitch = pitch;
-            cloudInfo.initialGuessYaw   = yaw;
-            cloudInfo.odomAvailable = true; 
-            // logger->info("odom Available");
-            pubLaserCloudInfo.publish(cloudInfo);
+            keyFrame->odomAvailable = true;
+            keyFrame->x = currentImuOdom.pose.pose.position.x;
+            keyFrame->y = currentImuOdom.pose.pose.position.y;
+            keyFrame->z = currentImuOdom.pose.pose.position.z;
+            keyFrame->roll = roll;
+            keyFrame->pitch = pitch;
+            keyFrame->roll = roll;
         }
-        else if(imuAvailable){
-            // logger->info("imuAvailable");
-            imuRPY2rosRPY(&currentImuMsg, &cloudInfo.imuRollInit, &cloudInfo.imuPitchInit, &cloudInfo.imuYawInit);
-            cloudInfo.odomAvailable = false;
-            cloudInfo.imuAvailable = true;
-            pubLaserCloudInfo.publish(cloudInfo);
+        if (imuAvailable) {
+            keyFrame->imuAvailable = true;
+            imuRPY2rosRPY(&currentImuMsg, &keyFrame->imuRollInit, &keyFrame->imuPitchInit, &keyFrame->imuYawInit);
         }
-        else {
-            logger->info("nothing available");
-        }
-
-        // mapOptimization
-        KeyFrame keyFrame;
-        keyFrame.cornerCloudDS = cornerCloud;
-        keyFrame.surfCloudDS   = surfCloud;
-        keyFrame.time = curCloudHeader.stamp.toSec();
-
-        if(odomAvailable) {
-            tf::Quaternion orientation;
-            tf::quaternionMsgToTF(currentImuOdom.pose.pose.orientation, orientation);
-            double roll, pitch, yaw;
-            tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
-            keyFrame.odomAvailable = true;
-            keyFrame.x = currentImuOdom.pose.pose.position.x;
-            keyFrame.y = currentImuOdom.pose.pose.position.y;
-            keyFrame.z = currentImuOdom.pose.pose.position.z;
-            keyFrame.roll = roll;
-            keyFrame.pitch = pitch;
-            keyFrame.roll = roll;
-
-        }
-        else if (imuAvailable) {
-            keyFrame.imuAvailable = true;
-            imuRPY2rosRPY(&currentImuMsg, &keyFrame.imuRollInit, &keyFrame.imuPitchInit, &keyFrame.imuYawInit);
-        }
-        poseEstimatorPtr->estimate(keyFrame);
-        // estimate 能够自动地进行点云配准，返回mapOdom和mapIncreOdom
+        std::unique_lock<std::mutex> keyFrameLock(keyFrameMutex);
+        keyFrameQueue.push(keyFrame);
         }
     }
 }
@@ -261,33 +240,16 @@ void process() {
 int main(int argc, char** argv) {
     ros::init(argc, argv, "ScanRegistration");
     ros::NodeHandle nh;
-
     ros::Subscriber subImu;
     ros::Subscriber subLidarCloud;
-
-    ros::Subscriber subOdomIncre;
-    ros::Subscriber subOdom;
     
-
     logger = spdlog::stdout_color_mt("console"); 
-
-    // allocate memory
-    cornerCloud.reset(new CloudType());
-    surfCloud.reset(new CloudType());
 
     subLidarCloud = nh.subscribe<sensor_msgs::PointCloud2>("/lidar_points", 5, cloudHandler, ros::TransportHints().tcpNoDelay());
     subImu = nh.subscribe<sensor_msgs::Imu>("/imu/data", 2000, imuHandler, ros::TransportHints().tcpNoDelay());
 
-    // 带有imu加权的odom
-    subOdomIncre = nh.subscribe<nav_msgs::Odometry>("lio_sam/mapping/odometry_incremental", 5, odomIncreHandler, ros::TransportHints().tcpNoDelay());
-    // 带有imu加权的odom
-    subOdom = nh.subscribe<nav_msgs::Odometry>("lio_sam/mapping/odometry", 5, odomHandler, ros::TransportHints().tcpNoDelay());
-    
-
     pubCornerCloud = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/corner_cloud", 1);
     pubSurfCloud   = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/surf_cloud", 1);
-
-    pubLaserCloudInfo = nh.advertise<lio_sam::cloud_info> ("lio_sam/feature/cloud_info", 1);
 
     featureExtractorPtr = new FeatureExtractor(logger);
     imuIntegratorPtr    = new IMUPreIntegrator(logger);
@@ -295,6 +257,7 @@ int main(int argc, char** argv) {
 
     std::thread thread_process{process};
     std::thread thread_imuIntegration{preIntegrationThread};
+    std::thread thread_mapOptimization{mapOptimizationThread};
 
     ros::spin();
     return 0; 

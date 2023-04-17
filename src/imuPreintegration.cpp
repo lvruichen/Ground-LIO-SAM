@@ -371,6 +371,9 @@ public:
             else
                 break;
         }
+        cout << fixed << "imu time begin: " << imuQueOpt.front().header.stamp.toSec() << " " << "imu time end: " <<
+        imuQueOpt.back().header.stamp.toSec() << " " << "lidar time: " << currentCorrectionTime << "imu size: " << imuQueOpt.size() << endl; 
+       
         // 将当前时刻的imu的测量值加入到因子图中，执行优化
         // add imu factor to graph
         const gtsam::PreintegratedImuMeasurements& preint_imu = dynamic_cast<const gtsam::PreintegratedImuMeasurements&>(*imuIntegratorOpt_);

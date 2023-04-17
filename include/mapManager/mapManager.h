@@ -59,7 +59,6 @@ using PointTypePose = PointXYZIRPYT;
 class MapManager
 {
 public:
-    std::shared_ptr<spdlog::logger> logger;
     std::mutex mapMutex;
 
     vector<pcl::PointCloud<PointType>::Ptr> cornerCloudKeyFrames;
@@ -96,7 +95,7 @@ public:
     ~MapManager();
     void allocateMemory();
     void saveKeyFrame(KeyFrame& _keyFrame);
-    bool extractSurroundingKeyFrames(KeyFrame& _keyFrame);
+    void extractSurroundingKeyFrames(KeyFrame& _keyFrame);
     void correctPoses();
 
     float pointDistance(PointType p1, PointType p2) {
