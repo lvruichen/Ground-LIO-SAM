@@ -2,7 +2,7 @@
 
 FeatureExtractor::FeatureExtractor(std::shared_ptr<spdlog::logger> _logger) {
     logger = _logger;
-    downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
+    downSizeFilter.setLeafSize(0.4, 0.4, 0.4);
     allocateMemory();
             pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 }
@@ -13,8 +13,6 @@ FeatureExtractor::~FeatureExtractor() {
 
 void FeatureExtractor::allocateMemory() {
     rawCloud.reset(new pcl::PointCloud<PointXYZIRT>());
-    // cornerCloud.reset(new pcl::PointCloud<PointType>());
-    // surfCloud.reset(new pcl::PointCloud<PointType>());
 
     vlines.resize(N_SCAN);
     for (auto& ptr : vlines) {
@@ -37,8 +35,6 @@ void FeatureExtractor::resetParameters() {
     for (auto& v : vsurf) {
         v.clear();
     }
-    // cornerCloud->clear();
-    // surfCloud->clear();
 }
 
 // 对每个激光束操作，提取其中的角点和平面点
@@ -228,8 +224,7 @@ void FeatureExtractor::featureExtract(sensor_msgs::PointCloud2 &msgIn, pcl::Poin
     if (ringFlag == 0) {
         //generate ring channel
     }
-
-    // logger->info("ring channel flag {}", ringFlag);
+    
     // separate cloud to lines
     int _cloudNum = rawCloud->size();
     for (int i = 0; i < _cloudNum; ++i) {
@@ -265,12 +260,7 @@ void FeatureExtractor::featureExtract(sensor_msgs::PointCloud2 &msgIn, pcl::Poin
             surfCloudOri->push_back(vlines[i]->points[id]);
         }
     }    
-
-    
     downSizeFilter.setInputCloud(surfCloudOri);
     downSizeFilter.filter(*surfCloud);
-    // logger->info("detected {} corner points", cornerCloud->size());
-    // logger->info("detected {} surf points", surfCloud->size());    
-
     resetParameters();
 }

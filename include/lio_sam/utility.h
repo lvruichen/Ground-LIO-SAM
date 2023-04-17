@@ -58,6 +58,8 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "utils/tictoc.hpp"
+
 using namespace std;
 
 typedef pcl::PointXYZI PointType;

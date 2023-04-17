@@ -55,14 +55,14 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/nonlinear/ISAM2.h>
 
-#include "mapManager/mapManager.h"
-
 #include <tf/LinearMath/Quaternion.h>
 #include <tf/transform_listener.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
 
 #include "imuIntegrator/imuIntegrator.h"
+#include "mapManager/mapManager.h"
+#include "utils/tictoc.hpp"
 
 using std::cout;
 using std::endl;
@@ -110,8 +110,8 @@ public:
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLastDS; // downsampled corner feature set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLastDS; // downsampled surf feature set from odoOptimization
 
-    pcl::PointCloud<PointType>::Ptr localCornerCloud;
-    pcl::PointCloud<PointType>::Ptr localSurfCloud;
+    pcl::PointCloud<PointType>::Ptr localCornerCloudDS;
+    pcl::PointCloud<PointType>::Ptr localSurfCloudDS;
 
     pcl::KdTreeFLANN<PointType>::Ptr kdtreeCornerFromMap;
     pcl::KdTreeFLANN<PointType>::Ptr kdtreeSurfFromMap;

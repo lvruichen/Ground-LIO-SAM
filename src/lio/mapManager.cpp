@@ -2,7 +2,7 @@
 
 MapManager::MapManager() {
     downSizeFilterCorner.setLeafSize(0.2, 0.2, 0.2);
-    downSizeFilterSurf.setLeafSize(0.2, 0.2, 0.2);
+    downSizeFilterSurf.setLeafSize(0.4, 0.4, 0.4);
     downSizeFilterICP.setLeafSize(0.2, 0.2, 0.2);
     downSizeFilterSurroundingKeyPoses.setLeafSize(1, 1, 1);
 
@@ -16,11 +16,6 @@ MapManager::~MapManager() {
 void MapManager::allocateMemory() {
     cloudKeyPoses3D.reset(new pcl::PointCloud<PointType>());
     cloudKeyPoses6D.reset(new pcl::PointCloud<PointTypePose>());
-
-    laserCloudCornerLast.reset(new pcl::PointCloud<PointType>());
-    laserCloudSurfLast.reset(new pcl::PointCloud<PointType>());
-    laserCloudCornerLastDS.reset(new pcl::PointCloud<PointType>());
-    laserCloudSurfLastDS.reset(new pcl::PointCloud<PointType>());
 
     laserCloudCornerFromMap.reset(new pcl::PointCloud<PointType>());
     laserCloudSurfFromMap.reset(new pcl::PointCloud<PointType>());
@@ -79,12 +74,29 @@ void MapManager::extractSurroundingKeyFrames(KeyFrame& _keyFrame) {
         surroundingKeyPoses->push_back(cloudKeyPoses3D->points[id]);
     }
 
+    downSizeFilterSurroundingKeyPoses.setInputCloud(surroundingKeyPoses);
+    downSizeFilterSurroundingKeyPoses.filter(*surroundingKeyPosesDS);
+    for(auto& pt : surroundingKeyPosesDS->points) {
+        kdtreeSurroundingKeyPoses->nearestKSearch(pt, 1, pointSearchInd, pointSearchSqDis);
+        pt.intensity = cloudKeyPoses3D->points[pointSearchInd[0]].intensity;
+    }
+
+    // also extract some latest key frames in case the robot rotates in one position
+    int numPoses = cloudKeyPoses3D->size();
+    for (int i = numPoses-1; i >= 0; --i)
+    {
+        if (_keyFrame.time - cloudKeyPoses6D->points[i].time < 10.0)
+            surroundingKeyPosesDS->push_back(cloudKeyPoses3D->points[i]);
+        else
+            break;
+    }
+
     laserCloudCornerFromMap->clear();
     laserCloudSurfFromMap->clear();
-    for (int i = 0; i < surroundingKeyPoses->size(); ++i) {
-        if (pointDistance(surroundingKeyPoses->points[i], cloudKeyPoses3D->back()) > 50.0)
+    for (int i = 0; i < surroundingKeyPosesDS->size(); ++i) {
+        if (pointDistance(surroundingKeyPosesDS->points[i], cloudKeyPoses3D->back()) > 50.0)
             continue;
-        int thisKeyInd = (int)surroundingKeyPoses->points[i].intensity;
+        int thisKeyInd = (int)surroundingKeyPosesDS->points[i].intensity;
         // 这里每次都重新加入现有的点云会是一个比较耗时的操作
         if (laserCloudMapContainer.find(thisKeyInd) != laserCloudMapContainer.end()) {
             *laserCloudCornerFromMap += laserCloudMapContainer[thisKeyInd].first;
@@ -97,18 +109,17 @@ void MapManager::extractSurroundingKeyFrames(KeyFrame& _keyFrame) {
             *laserCloudCornerFromMap += laserCloudCornerTemp;
             *laserCloudSurfFromMap   += laserCloudSurfTemp;
             laserCloudMapContainer[thisKeyInd] = make_pair(laserCloudCornerTemp, laserCloudSurfTemp);
-            
-            downSizeFilterCorner.setInputCloud(laserCloudCornerFromMap);
-            downSizeFilterCorner.filter(*laserCloudCornerFromMapDS);
-
-            // Downsample the surrounding surf key frames (or map)
-            downSizeFilterSurf.setInputCloud(laserCloudSurfFromMap);
-            downSizeFilterSurf.filter(*laserCloudSurfFromMapDS);
-
-            // clear map cache if too large
-            if (laserCloudMapContainer.size() > 1000)
-                laserCloudMapContainer.clear();
-        }
+        }  
     }
+    downSizeFilterCorner.setInputCloud(laserCloudCornerFromMap);
+    downSizeFilterCorner.filter(*laserCloudCornerFromMapDS);
+
+    // Downsample the surrounding surf key frames (or map)
+    downSizeFilterSurf.setInputCloud(laserCloudSurfFromMap);
+    downSizeFilterSurf.filter(*laserCloudSurfFromMapDS);
+
+    // clear map cache if too large
+    if (laserCloudMapContainer.size() > 1000)
+        laserCloudMapContainer.clear();
     return;
 }

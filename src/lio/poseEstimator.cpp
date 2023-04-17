@@ -33,8 +33,8 @@ void PoseEstimator::allocateMemory() {
     std::fill(laserCloudOriCornerFlag.begin(), laserCloudOriCornerFlag.end(), false);
     std::fill(laserCloudOriSurfFlag.begin(), laserCloudOriSurfFlag.end(), false);
 
-    localCornerCloud.reset(new pcl::PointCloud<PointType>());
-    localSurfCloud.reset(new pcl::PointCloud<PointType>());
+    localCornerCloudDS.reset(new pcl::PointCloud<PointType>());
+    localSurfCloudDS.reset(new pcl::PointCloud<PointType>());
 
     kdtreeCornerFromMap.reset(new pcl::KdTreeFLANN<PointType>());
     kdtreeSurfFromMap.reset(new pcl::KdTreeFLANN<PointType>());
@@ -48,31 +48,17 @@ void PoseEstimator::estimate(KeyFrame& _keyFrame) {
     propagateIMUFlag = false;
     if(timeLaserInfoCur - timeLastProcessing >= 0.15) {
         propagateIMUFlag = true;
-        // logger->info("come in estiamte");
         timeLastProcessing = timeLaserInfoCur;
-        // update initial guess
-        // logger->info("updateInitailGuess");
+
         updateInitialGuess(_keyFrame);
-        // logger->info("transformTobeMapped: {}, {}, {}, {}, {}, {}", transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2],
-                                        // transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]);
-        
-        // extract surrounding keyFrames
-        // logger->info("extractSurroundKeyFrames");
+
         extractSurroundKeyFrames(_keyFrame);
-        // logger->info("localCornerCloud size: {}", localCornerCloud->size());
-        // logger->info("localSurfCloud size: {}", localSurfCloud->size());
-        // downSampleCurrentScan
-        // logger->info("downsampleCurrentScan");
+
         downsampleCurrentScan(_keyFrame);
 
-        // scan2MapOptimization
-        // logger->info("scan2MapOptimization");
         scan2MapOptimization(_keyFrame);
 
-        // saveKeyFramesAndFactor
-        // logger->info("saveKeyFramesAndFactors");
         saveKeyFramesAndFactors(_keyFrame);
-        // correctPoses
     }
 }
 
@@ -83,7 +69,6 @@ void PoseEstimator::updateInitialGuess(KeyFrame& _keyFrame) {
         transformTobeMapped[0] = _keyFrame.imuRollInit;
         transformTobeMapped[1] = _keyFrame.imuPitchInit;
         transformTobeMapped[2] = 0;
-
         lastImuTransformation = pcl::getTransformation(0, 0, 0, 
                             _keyFrame.imuRollInit, _keyFrame.imuPitchInit, _keyFrame.imuYawInit); // save imu before return;
         return;
@@ -106,23 +91,21 @@ void PoseEstimator::updateInitialGuess(KeyFrame& _keyFrame) {
                                                             transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
 
             lastImuPreTransformation = transBack;
-
             lastImuTransformation = pcl::getTransformation(0, 0, 0, _keyFrame.imuRollInit, _keyFrame.imuPitchInit, _keyFrame.imuYawInit); // save imu before return;
             return;
         }
+    }
+    if (_keyFrame.imuAvailable == true) {
+        Eigen::Affine3f transBack = pcl::getTransformation(0, 0, 0, _keyFrame.imuRollInit, _keyFrame.imuPitchInit, _keyFrame.imuYawInit);
+        Eigen::Affine3f transIncre = lastImuTransformation.inverse() * transBack;
 
-        if (_keyFrame.imuAvailable == true) {
-            Eigen::Affine3f transBack = pcl::getTransformation(0, 0, 0, _keyFrame.imuRollInit, _keyFrame.imuPitchInit, _keyFrame.imuYawInit);
-            Eigen::Affine3f transIncre = lastImuTransformation.inverse() * transBack;
+        Eigen::Affine3f transTobe = trans2Affine3f(transformTobeMapped);
+        Eigen::Affine3f transFinal = transTobe * transIncre;
+        pcl::getTranslationAndEulerAngles(transFinal, transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5], 
+                                                        transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
 
-            Eigen::Affine3f transTobe = trans2Affine3f(transformTobeMapped);
-            Eigen::Affine3f transFinal = transTobe * transIncre;
-            pcl::getTranslationAndEulerAngles(transFinal, transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5], 
-                                                          transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
-
-            lastImuTransformation = pcl::getTransformation(0, 0, 0, _keyFrame.imuRollInit, _keyFrame.imuPitchInit, _keyFrame.imuYawInit); // save imu before return;
-            return;
-        }
+        lastImuTransformation = pcl::getTransformation(0, 0, 0, _keyFrame.imuRollInit, _keyFrame.imuPitchInit, _keyFrame.imuYawInit); // save imu before return;
+        return;
     }
 }
 
@@ -131,8 +114,8 @@ void PoseEstimator::extractSurroundKeyFrames(KeyFrame& _keyFrame) {
     if (mapManager->cloudKeyPoses3D->empty())
         return;
     mapManager->extractSurroundingKeyFrames(_keyFrame);
-    localCornerCloud = mapManager->laserCloudCornerFromMap;
-    localSurfCloud = mapManager->laserCloudSurfFromMap;
+    localCornerCloudDS = mapManager->laserCloudCornerFromMapDS;
+    localSurfCloudDS = mapManager->laserCloudSurfFromMapDS;
 }
 
 void PoseEstimator::downsampleCurrentScan(KeyFrame& _keyFrame) {
@@ -145,12 +128,12 @@ void PoseEstimator::downsampleCurrentScan(KeyFrame& _keyFrame) {
 void PoseEstimator::scan2MapOptimization(KeyFrame& _keyFrame) {
     if (mapManager->cloudKeyPoses3D->points.empty())
             return;
-
         if (laserCloudCornerLastDSNum > 10 && laserCloudSurfLastDSNum > 100)
         {
-            kdtreeCornerFromMap->setInputCloud(localCornerCloud);
-            kdtreeSurfFromMap->setInputCloud(localSurfCloud);
-
+            kdtreeCornerFromMap->setInputCloud(localCornerCloudDS);
+            kdtreeSurfFromMap->setInputCloud(localSurfCloudDS);
+            common::TicToc t1;
+            common::TicToc t2;
             for (int iterCount = 0; iterCount < 30; iterCount++)
             {
                 laserCloudOri->clear();
@@ -160,9 +143,9 @@ void PoseEstimator::scan2MapOptimization(KeyFrame& _keyFrame) {
                 surfOptimization();
 
                 combineOptimizationCoeffs();
-
-                if (LMOptimization(iterCount) == true)
-                    break;              
+                if (LMOptimization(iterCount) == true) {
+                    break;    
+                }          
             }
             transformUpdate(_keyFrame);
         } else {
@@ -172,6 +155,7 @@ void PoseEstimator::scan2MapOptimization(KeyFrame& _keyFrame) {
 
 void PoseEstimator::cornerOptimization() {
     updatePointAssociateToMap();
+    #pragma omp parallel for num_threads(4)
     for (int i = 0; i < laserCloudCornerLastDSNum; i++)
     {
         PointType pointOri, pointSel, coeff;
@@ -189,17 +173,17 @@ void PoseEstimator::cornerOptimization() {
         if (pointSearchSqDis[4] < 1.0) {
             float cx = 0, cy = 0, cz = 0;
             for (int j = 0; j < 5; j++) {
-                cx += localCornerCloud->points[pointSearchInd[j]].x;
-                cy += localCornerCloud->points[pointSearchInd[j]].y;
-                cz += localCornerCloud->points[pointSearchInd[j]].z;
+                cx += localCornerCloudDS->points[pointSearchInd[j]].x;
+                cy += localCornerCloudDS->points[pointSearchInd[j]].y;
+                cz += localCornerCloudDS->points[pointSearchInd[j]].z;
             }
             cx /= 5; cy /= 5;  cz /= 5;
 
             float a11 = 0, a12 = 0, a13 = 0, a22 = 0, a23 = 0, a33 = 0;
             for (int j = 0; j < 5; j++) {
-                float ax = localCornerCloud->points[pointSearchInd[j]].x - cx;
-                float ay = localCornerCloud->points[pointSearchInd[j]].y - cy;
-                float az = localCornerCloud->points[pointSearchInd[j]].z - cz;
+                float ax = localCornerCloudDS->points[pointSearchInd[j]].x - cx;
+                float ay = localCornerCloudDS->points[pointSearchInd[j]].y - cy;
+                float az = localCornerCloudDS->points[pointSearchInd[j]].z - cz;
 
                 a11 += ax * ax; a12 += ax * ay; a13 += ax * az;
                 a22 += ay * ay; a23 += ay * az;
@@ -261,6 +245,7 @@ void PoseEstimator::cornerOptimization() {
 
 void PoseEstimator::surfOptimization() {
     updatePointAssociateToMap();
+    #pragma omp parallel for num_threads(4)
     for (int i = 0; i < laserCloudSurfLastDSNum; i++) {
         PointType pointOri, pointSel, coeff;
         std::vector<int> pointSearchInd;
@@ -280,9 +265,9 @@ void PoseEstimator::surfOptimization() {
 
         if (pointSearchSqDis[4] < 1.0) {
             for (int j = 0; j < 5; j++) {
-                matA0(j, 0) = localSurfCloud->points[pointSearchInd[j]].x;
-                matA0(j, 1) = localSurfCloud->points[pointSearchInd[j]].y;
-                matA0(j, 2) = localSurfCloud->points[pointSearchInd[j]].z;
+                matA0(j, 0) = localSurfCloudDS->points[pointSearchInd[j]].x;
+                matA0(j, 1) = localSurfCloudDS->points[pointSearchInd[j]].y;
+                matA0(j, 2) = localSurfCloudDS->points[pointSearchInd[j]].z;
             }
 
             matX0 = matA0.colPivHouseholderQr().solve(matB0);
@@ -297,9 +282,9 @@ void PoseEstimator::surfOptimization() {
 
             bool planeValid = true;
             for (int j = 0; j < 5; j++) {
-                if (fabs(pa * localSurfCloud->points[pointSearchInd[j]].x +
-                            pb * localSurfCloud->points[pointSearchInd[j]].y +
-                            pc * localSurfCloud->points[pointSearchInd[j]].z + pd) > 0.2) {
+                if (fabs(pa * localSurfCloudDS->points[pointSearchInd[j]].x +
+                            pb * localSurfCloudDS->points[pointSearchInd[j]].y +
+                            pc * localSurfCloudDS->points[pointSearchInd[j]].z + pd) > 0.2) {
                     planeValid = false;
                     break;
                 }

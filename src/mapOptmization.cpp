@@ -236,6 +236,7 @@ public:
 
     void laserCloudInfoHandler(const lio_sam::cloud_infoConstPtr& msgIn)
     {
+        common::TicToc t1;
         // extract time stamp
         timeLaserInfoStamp = msgIn->header.stamp;
         timeLaserInfoCur = msgIn->header.stamp.toSec();
@@ -268,7 +269,6 @@ public:
             publishOdometry();
 
             publishFrames();
-
         }
     }
 
@@ -1297,7 +1297,7 @@ public:
         {
             kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMapDS);
             kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
-
+            common::TicToc t1;
             for (int iterCount = 0; iterCount < 30; iterCount++)
             {
                 laserCloudOri->clear();
@@ -1307,9 +1307,11 @@ public:
                 surfOptimization();
 
                 combineOptimizationCoeffs();
+                
 
-                if (LMOptimization(iterCount) == true)
-                    break;              
+                if (LMOptimization(iterCount) == true) {
+                    break;
+                }           
             }
 
             transformUpdate();
