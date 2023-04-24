@@ -8,12 +8,12 @@ using PointType = pcl::PointXYZI;
 class KeyFrame {
 public:
     KeyFrame() {
-        rawCloud.reset(new pcl::PointCloud<PointType>());
+        rawCloudDS.reset(new pcl::PointCloud<PointType>());
         cornerCloudDS.reset(new pcl::PointCloud<PointType>());
         surfCloudDS.reset(new pcl::PointCloud<PointType>());
     }
 public:
-    pcl::PointCloud<PointType>::Ptr rawCloud;
+    pcl::PointCloud<PointType>::Ptr rawCloudDS;
     pcl::PointCloud<PointType>::Ptr cornerCloudDS;
     pcl::PointCloud<PointType>::Ptr surfCloudDS;
 

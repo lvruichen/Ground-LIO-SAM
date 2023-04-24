@@ -3,8 +3,8 @@
 MapManager::MapManager() {
     downSizeFilterCorner.setLeafSize(0.2, 0.2, 0.2);
     downSizeFilterSurf.setLeafSize(0.4, 0.4, 0.4);
-    downSizeFilterICP.setLeafSize(0.2, 0.2, 0.2);
-    downSizeFilterSurroundingKeyPoses.setLeafSize(1, 1, 1);
+    downSizeFilterICP.setLeafSize(0.4, 0.4, 0.4);
+    downSizeFilterSurroundingKeyPoses.setLeafSize(2, 2, 2);
 
     allocateMemory();
 }
@@ -29,38 +29,8 @@ void MapManager::allocateMemory() {
     kdtreeHistoryKeyPoses.reset(new pcl::KdTreeFLANN<PointType>());
 }
 
-// save current cloud and pose, including feature points and 6d pose
-void MapManager::saveKeyFrame(KeyFrame& _keyFrame) {
-    PointType thisPose3D;
-    PointTypePose thisPose6D;
-    thisPose3D.x = _keyFrame.x;
-    thisPose3D.y = _keyFrame.y;
-    thisPose3D.z = _keyFrame.z;
-    thisPose3D.intensity = cloudKeyPoses3D->size();
-    cloudKeyPoses3D->push_back(thisPose3D);
-
-    thisPose6D.x = thisPose3D.x;
-    thisPose6D.y = thisPose3D.y;
-    thisPose6D.z = thisPose3D.z;
-    thisPose6D.intensity = thisPose6D.intensity;
-    thisPose6D.roll = _keyFrame.roll;
-    thisPose6D.pitch = _keyFrame.pitch;
-    thisPose6D.yaw = _keyFrame.yaw;
-    thisPose6D.time = _keyFrame.time;
-    cloudKeyPoses6D->push_back(thisPose6D);
-
-    // save all the received edge and surf points
-    pcl::PointCloud<PointType>::Ptr thisCornerKeyFrame(new pcl::PointCloud<PointType>());
-    pcl::PointCloud<PointType>::Ptr thisSurfKeyFrame(new pcl::PointCloud<PointType>());
-    
-    pcl::copyPointCloud(*_keyFrame.cornerCloudDS, *thisCornerKeyFrame);
-    pcl::copyPointCloud(*_keyFrame.surfCloudDS, *thisSurfKeyFrame);
-
-    cornerCloudKeyFrames.push_back(thisCornerKeyFrame);
-    cornerCloudKeyFrames.push_back(thisSurfKeyFrame);
-}
-
 void MapManager::extractSurroundingKeyFrames(KeyFrame& _keyFrame) {
+    std::unique_lock<mutex> mapLock(mapMutex);
     if (cloudKeyPoses3D->empty())
         return;
     pcl::PointCloud<PointType>::Ptr surroundingKeyPoses(new pcl::PointCloud<PointType>());

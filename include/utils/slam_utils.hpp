@@ -7,6 +7,11 @@
 #include <pcl/common/common.h>
 
 
+template<typename T>
+double ROS_TIME(T msg)
+{
+    return msg->header.stamp.toSec();
+}
 
 template<typename T>
 void publishCloud(const ros::Publisher& thisPub, const T& thisCloud, ros::Time thisStamp, std::string thisFrame)
@@ -69,6 +74,8 @@ sensor_msgs::Imu imuConverter(const sensor_msgs::Imu& imu_in) {
     }
     return imu_out;
 }
+
+
 
 
 #endif

@@ -3,14 +3,10 @@
     <rosparam file="$(find lio_sam)/config/params.yaml" command="load" />
 
     <arg name="project" default="lio_sam"/>
-    <param name="configFile" value="$(find lio_sam)/config/config.yaml"/>
-    <node pkg="$(arg project)" type="$(arg project)_lio" name="$(arg project)_lio" output="screen"/>
-    <!-- <node pkg="$(arg project)" type="$(arg project)_poseEstimation" name="$(arg project)_poseEstimation" output="screen"/> -->
 
-    <!-- <node pkg="$(arg project)" type="$(arg project)_imuPreintegration"   name="$(arg project)_imuPreintegration"    output="screen" 	respawn="true"/> -->
-    <!-- <node pkg="$(arg project)" type="$(arg project)_imageProjection"     name="$(arg project)_imageProjection"      output="screen"     respawn="true"/> -->
-    <!-- <node pkg="$(arg project)" type="$(arg project)_featureExtraction"   name="$(arg project)_featureExtraction"    output="screen"     respawn="true"/> -->
-    <!-- <node pkg="$(arg project)" type="$(arg project)_mapOptmization"      name="$(arg project)_mapOptmization"       output="screen"     respawn="true"/> -->
+    <node pkg="$(arg project)" type="$(arg project)_lio_front_end" name="$(arg project)_lio_front_end" output="screen"/>
+    
+    <node pkg="$(arg project)" type="$(arg project)_lio_back_end" name="$(arg project)_lio_back_end" output="screen"/>
 
 <!--- Run Rviz-->
     <!-- <include file="$(find lio_sam)/launch/include/module_rviz.launch" /> -->

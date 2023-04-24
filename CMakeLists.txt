@@ -4,7 +4,6 @@ project(lio_sam)
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++14")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g -pthread")
-set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 find_package(catkin REQUIRED COMPONENTS
   tf
@@ -34,6 +33,7 @@ add_message_files(
   DIRECTORY msg
   FILES
   cloud_info.msg
+  keyFrame.msg
 )
 
 add_service_files(

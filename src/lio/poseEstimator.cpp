@@ -7,6 +7,8 @@ PoseEstimator::PoseEstimator(std::shared_ptr<spdlog::logger> _logger) {
     parameters.relinearizeThreshold = 0.1;
     parameters.relinearizeSkip = 1;
     isam = new ISAM2(parameters);
+    downSizeFilterCorner.setLeafSize(0.2, 0.2, 0.2);
+    downSizeFilterSurf.setLeafSize(0.4, 0.4, 0.4);
     allocateMemory();
 }
 
@@ -44,6 +46,7 @@ void PoseEstimator::allocateMemory() {
 
 void PoseEstimator::estimate(KeyFrame& _keyFrame) {
     timeLaserInfoCur = _keyFrame.time;
+    timeLaserInfoStamp = ros::Time().fromSec(timeLaserInfoCur);
     static double timeLastProcessing = -1;
     propagateIMUFlag = false;
     if(timeLaserInfoCur - timeLastProcessing >= 0.15) {
@@ -53,7 +56,7 @@ void PoseEstimator::estimate(KeyFrame& _keyFrame) {
         updateInitialGuess(_keyFrame);
 
         extractSurroundKeyFrames(_keyFrame);
-
+         
         downsampleCurrentScan(_keyFrame);
 
         scan2MapOptimization(_keyFrame);
@@ -68,7 +71,7 @@ void PoseEstimator::updateInitialGuess(KeyFrame& _keyFrame) {
     if (mapManager->cloudKeyPoses3D->empty()) {
         transformTobeMapped[0] = _keyFrame.imuRollInit;
         transformTobeMapped[1] = _keyFrame.imuPitchInit;
-        transformTobeMapped[2] = 0;
+        transformTobeMapped[2] = _keyFrame.imuYawInit;
         lastImuTransformation = pcl::getTransformation(0, 0, 0, 
                             _keyFrame.imuRollInit, _keyFrame.imuPitchInit, _keyFrame.imuYawInit); // save imu before return;
         return;
@@ -114,15 +117,23 @@ void PoseEstimator::extractSurroundKeyFrames(KeyFrame& _keyFrame) {
     if (mapManager->cloudKeyPoses3D->empty())
         return;
     mapManager->extractSurroundingKeyFrames(_keyFrame);
-    localCornerCloudDS = mapManager->laserCloudCornerFromMapDS;
-    localSurfCloudDS = mapManager->laserCloudSurfFromMapDS;
+    // localCornerCloudDS = mapManager->laserCloudCornerFromMapDS;
+    // localSurfCloudDS = mapManager->laserCloudSurfFromMapDS;
+    localCornerCloudDS->clear();
+    localSurfCloudDS->clear();
+    pcl::copyPointCloud(*mapManager->laserCloudCornerFromMapDS, *localCornerCloudDS);
+    pcl::copyPointCloud(*mapManager->laserCloudSurfFromMapDS, * localSurfCloudDS);
 }
 
 void PoseEstimator::downsampleCurrentScan(KeyFrame& _keyFrame) {
-    laserCloudCornerLastDSNum = _keyFrame.cornerCloudDS->size();
-    laserCloudSurfLastDSNum = _keyFrame.surfCloudDS->size();
-    laserCloudCornerLastDS = _keyFrame.cornerCloudDS;
-    laserCloudSurfLastDS = _keyFrame.surfCloudDS;
+
+    
+    downSizeFilterCorner.setInputCloud(_keyFrame.cornerCloudDS);
+    downSizeFilterCorner.filter(*laserCloudCornerLastDS);
+    downSizeFilterSurf.setInputCloud(_keyFrame.surfCloudDS);
+    downSizeFilterSurf.filter(*laserCloudSurfLastDS);
+    laserCloudCornerLastDSNum = laserCloudCornerLastDS->size();
+    laserCloudSurfLastDSNum = laserCloudSurfLastDS->size();
 }
 
 void PoseEstimator::scan2MapOptimization(KeyFrame& _keyFrame) {
@@ -132,20 +143,21 @@ void PoseEstimator::scan2MapOptimization(KeyFrame& _keyFrame) {
         {
             kdtreeCornerFromMap->setInputCloud(localCornerCloudDS);
             kdtreeSurfFromMap->setInputCloud(localSurfCloudDS);
-            common::TicToc t1;
-            common::TicToc t2;
+
             for (int iterCount = 0; iterCount < 30; iterCount++)
             {
                 laserCloudOri->clear();
                 coeffSel->clear();
 
                 cornerOptimization();
+
                 surfOptimization();
 
                 combineOptimizationCoeffs();
+
                 if (LMOptimization(iterCount) == true) {
                     break;    
-                }          
+                }     
             }
             transformUpdate(_keyFrame);
         } else {
@@ -535,18 +547,70 @@ void PoseEstimator::saveKeyFramesAndFactors(KeyFrame& _keyFrame) {
     transformTobeMapped[3] = latestEstimate.translation().x();
     transformTobeMapped[4] = latestEstimate.translation().y();
     transformTobeMapped[5] = latestEstimate.translation().z();
+    
+    // logger->info("transformTobeMapped: {}, {}, {}, {}, {}, {}", 
+    // transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2],
+    // transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]);
 
     // save all the received edge and surf points
     pcl::PointCloud<PointType>::Ptr thisCornerKeyFrame(new pcl::PointCloud<PointType>());
     pcl::PointCloud<PointType>::Ptr thisSurfKeyFrame(new pcl::PointCloud<PointType>());
+    pcl::PointCloud<PointType>::Ptr thisRawKeyFrame(new pcl::PointCloud<PointType>());
     pcl::copyPointCloud(*laserCloudCornerLastDS,  *thisCornerKeyFrame);
     pcl::copyPointCloud(*laserCloudSurfLastDS,    *thisSurfKeyFrame);
+    pcl::copyPointCloud(*_keyFrame.rawCloudDS, *thisRawKeyFrame);
 
     // save key frame cloud
     mapManager->cornerCloudKeyFrames.push_back(thisCornerKeyFrame);
     mapManager->surfCloudKeyFrames.push_back(thisSurfKeyFrame);
+    mapManager->rawCloudKeyFrames.push_back(thisRawKeyFrame);
+
+    updatePath(thisPose6D);
+
 }
 
+void PoseEstimator::addOdomFactor() {
+    if (mapManager->cloudKeyPoses3D->points.empty())
+    {
+        noiseModel::Diagonal::shared_ptr priorNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1e8, 1e8, 1e8).finished()); // rad*rad, meter*meter
+        gtSAMgraph.add(PriorFactor<Pose3>(0, trans2gtsamPose(transformTobeMapped), priorNoise));
+        initialEstimate.insert(0, trans2gtsamPose(transformTobeMapped));
+    }else{
+        noiseModel::Diagonal::shared_ptr odometryNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
+        gtsam::Pose3 poseFrom = pclPointTogtsamPose3(mapManager->cloudKeyPoses6D->points.back());
+        gtsam::Pose3 poseTo   = trans2gtsamPose(transformTobeMapped);
+        gtSAMgraph.add(BetweenFactor<Pose3>(mapManager->cloudKeyPoses3D->size()-1, mapManager->cloudKeyPoses3D->size(), poseFrom.between(poseTo), odometryNoise));
+        initialEstimate.insert(mapManager->cloudKeyPoses3D->size(), poseTo);
+    }
+}
+
+void PoseEstimator::publishOdometry(ros::Publisher& _pubGlobalPath) {
+    // static tf::TransformBroadcaster br;
+    // tf::Transform transLidar2Map = tf::Transform(tf::createQuaternionFromRPY(transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]),
+    //                                                   tf::Vector3(transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]));
+    // tf::StampedTransform trans_odom_to_lidar = tf::StampedTransform(transLidar2Map, timeLaserInfoStamp, "map", "velodyne");
+    // br.sendTransform(trans_odom_to_lidar);
+
+    globalPath.header.stamp = timeLaserInfoStamp;
+    globalPath.header.frame_id = "map";
+    _pubGlobalPath.publish(globalPath);
+}
+
+void PoseEstimator::updatePath(const PointTypePose& pose_in) {
+    geometry_msgs::PoseStamped poseStamped;
+    poseStamped.header.stamp = ros::Time().fromSec(pose_in.time);
+    poseStamped.header.frame_id = "map";
+    poseStamped.pose.position.x = pose_in.x;
+    poseStamped.pose.position.y = pose_in.y;
+    poseStamped.pose.position.z = pose_in.z;
+    tf::Quaternion q = tf::createQuaternionFromRPY(pose_in.roll, pose_in.pitch, pose_in.yaw);
+    poseStamped.pose.orientation.x = q.x();
+    poseStamped.pose.orientation.y = q.y();
+    poseStamped.pose.orientation.z = q.z();
+    poseStamped.pose.orientation.w = q.w();
+
+    globalPath.poses.push_back(poseStamped);
+}
 
 
 

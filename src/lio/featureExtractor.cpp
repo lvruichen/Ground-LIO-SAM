@@ -241,6 +241,7 @@ void FeatureExtractor::featureExtract(sensor_msgs::PointCloud2 &msgIn, pcl::Poin
     for (int i = 0; i < N_SCAN; ++i) {
         thread[i] = std::thread(&FeatureExtractor::detectFeaturePoint, this, 
         std::ref(vlines[i]), std::ref(vcorner[i]), std::ref(vsurf[i]));
+        // detectFeaturePoint(vlines[i], vcorner[i], vsurf[i]);
     }
     for (int i = 0; i < N_SCAN; ++i) {
         thread[i].join();

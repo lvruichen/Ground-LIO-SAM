@@ -63,7 +63,8 @@ public:
 
     vector<pcl::PointCloud<PointType>::Ptr> cornerCloudKeyFrames;
     vector<pcl::PointCloud<PointType>::Ptr> surfCloudKeyFrames;
-
+    vector<pcl::PointCloud<PointType>::Ptr> rawCloudKeyFrames;
+ 
     pcl::PointCloud<PointType>::Ptr cloudKeyPoses3D;
     pcl::PointCloud<PointTypePose>::Ptr cloudKeyPoses6D;
 
@@ -89,9 +90,7 @@ public:
     MapManager();
     ~MapManager();
     void allocateMemory();
-    void saveKeyFrame(KeyFrame& _keyFrame);
     void extractSurroundingKeyFrames(KeyFrame& _keyFrame);
-    void correctPoses();
 
     float pointDistance(PointType p1, PointType p2) {
         return sqrt((p1.x-p2.x)*(p1.x-p2.x) + (p1.y-p2.y)*(p1.y-p2.y) + (p1.z-p2.z)*(p1.z-p2.z));

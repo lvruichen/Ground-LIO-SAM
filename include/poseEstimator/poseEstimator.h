@@ -93,6 +93,10 @@ public:
     Values isamCurrentEstimate;
     Eigen::MatrixXd poseCovariance;
 
+    ros::Time timeLaserInfoStamp;
+
+    nav_msgs::Path globalPath;
+
     double timeLaserInfoCur;
     float transformTobeMapped[6]{0, 0, 0, 0, 0, 0};
     bool isDegenerate = false;
@@ -123,6 +127,9 @@ public:
     pcl::PointCloud<PointType>::Ptr laserCloudOri;
     pcl::PointCloud<PointType>::Ptr coeffSel;
 
+    pcl::VoxelGrid<PointType> downSizeFilterCorner;
+    pcl::VoxelGrid<PointType> downSizeFilterSurf;
+
     std::vector<PointType> laserCloudOriCornerVec; // corner point holder for parallel computation
     std::vector<PointType> coeffSelCornerVec;
     std::vector<bool> laserCloudOriCornerFlag;
@@ -149,8 +156,11 @@ public:
     bool LMOptimization(int _count);
     void transformUpdate(KeyFrame& _keyFrame);
     void saveKeyFramesAndFactors(KeyFrame& _keyFrame);
+    void addOdomFactor();
+    void publishOdometry(ros::Publisher& _pubGlobalpath);
+    void updatePath(const PointTypePose& pose_in);
 
-    void propagateIMU(IMUPreIntegrator* _imuIntegratorPtr, KeyFrame& _keyFrame) {
+    nav_msgs::Odometry propagateIMU(KeyFrame& _keyFrame) {
         laserOdometryROS.header.stamp.fromSec(timeLaserInfoCur);
         laserOdometryROS.header.frame_id = "odom";
         laserOdometryROS.child_frame_id = "odom_mapping";
@@ -177,7 +187,7 @@ public:
             {
                 if (std::abs(_keyFrame.imuPitchInit) < 1.4)
                 {
-                    double imuWeight = 0.1;
+                    double imuWeight = 0.01;
                     tf::Quaternion imuQuaternion;
                     tf::Quaternion transformQuaternion;
                     double rollMid, pitchMid, yawMid;
@@ -207,9 +217,7 @@ public:
             else
                 laserOdomIncremental.pose.covariance[0] = 0;
         }
-
-        _imuIntegratorPtr->setOdomMsg(laserOdometryROS);
-        _imuIntegratorPtr->pushOdomIncreMsg(laserOdomIncremental);
+        return laserOdomIncremental;
     }
 
     gtsam::Pose3 pclPointTogtsamPose3(PointTypePose thisPoint) {
@@ -263,7 +271,7 @@ public:
     }
 
     bool saveFrame() {
-        if (mapManager->cloudKeyPoses3D->points.empty())
+        if (mapManager->cloudKeyPoses3D->points.size() < 1)
             return true;
 
         Eigen::Affine3f transStart = pclPointToAffine3f(mapManager->cloudKeyPoses6D->back());
@@ -280,23 +288,6 @@ public:
             return false;
         return true;
     }
-
-    void addOdomFactor() {
-        if (mapManager->cloudKeyPoses3D->points.empty())
-        {
-            noiseModel::Diagonal::shared_ptr priorNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1e8, 1e8, 1e8).finished()); // rad*rad, meter*meter
-            gtSAMgraph.add(PriorFactor<Pose3>(0, trans2gtsamPose(transformTobeMapped), priorNoise));
-            initialEstimate.insert(0, trans2gtsamPose(transformTobeMapped));
-        }else{
-            noiseModel::Diagonal::shared_ptr odometryNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
-            gtsam::Pose3 poseFrom = pclPointTogtsamPose3(mapManager->cloudKeyPoses6D->points.back());
-            gtsam::Pose3 poseTo   = trans2gtsamPose(transformTobeMapped);
-            gtSAMgraph.add(BetweenFactor<Pose3>(mapManager->cloudKeyPoses3D->size()-1, mapManager->cloudKeyPoses3D->size(), poseFrom.between(poseTo), odometryNoise));
-            initialEstimate.insert(mapManager->cloudKeyPoses3D->size(), poseTo);
-        }
-    }
-
-
 };
 
 #endif

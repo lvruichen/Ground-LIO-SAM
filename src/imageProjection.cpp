@@ -154,7 +154,6 @@ public:
 
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg)
     {
-        common::TicToc t1;
         if (!cachePointCloud(laserCloudMsg))
             return;
 
@@ -168,7 +167,6 @@ public:
         publishClouds();
 
         resetParameters();
-        logger->info("imageProjection cost: {}", t1.toc());
     }
 
     bool cachePointCloud(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg)

@@ -8,10 +8,13 @@
 
 #include <mutex>
 #include <queue>
+#include <deque>
 #include <ros/ros.h>
+#include <nav_msgs/Path.h>
 
 #include <sensor_msgs/Imu.h>
 #include <nav_msgs/Odometry.h>
+#include <nav_msgs/Path.h>
 // logger
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -44,6 +47,31 @@ using gtsam::symbol_shorthand::V; // Vel   (xdot,ydot,zdot)
 using gtsam::symbol_shorthand::B; // Bias  (ax,ay,az,gx,gy,gz)
 
 // 用来输入计算两帧点云之间的imu的预积分，输入为lio-sam优化得到的10hz的雷达里程计和增量里程计以及原始的imu数据
+class TransformFusion {
+    public:
+    std::mutex mtx;
+
+    ros::NodeHandle nh;
+
+    ros::Subscriber subImuOdometry;
+    ros::Subscriber subLaserOdometry;
+
+    ros::Publisher pubImuPath;
+
+    Eigen::Affine3f transOdom2Map;
+    Eigen::Affine3f transBase2Odom;
+    Eigen::Affine3f transBase2Map;
+
+    double lidarOdomTime = -1;
+    deque<nav_msgs::Odometry> imuOdomQueue;
+
+    TransformFusion();
+    ~TransformFusion();
+    void lidarOdometryHandler(const nav_msgs::Odometry::ConstPtr& odomMsg);
+    void imuOdometryHandler(const nav_msgs::Odometry::ConstPtr& odomMsg);
+
+};
+
 class IMUPreIntegrator {
 private:
    // for propagation
@@ -55,10 +83,6 @@ private:
     std::mutex odomMutex;
     std::mutex queImuMutex;
     std::mutex queOptMutex;
-
-    Eigen::Affine3f lidarOdomAffine;
-    Eigen::Affine3f imuOdomAffineFront;
-    Eigen::Affine3f imuOdomAffineBack;
 
     bool systemInitialized{false};
     bool doneFirstOpt{false};
@@ -102,9 +126,8 @@ public:
     bool failureDetection(const gtsam::Vector3& velCur, const gtsam::imuBias::ConstantBias& biasCur);
     void getImuBias() const;
     // 可以获得一个imu里程计和一个雷达里程计
-    void pushImuMsg(const sensor_msgs::Imu& imuMsg, nav_msgs::Odometry& lidarIncreOdom, nav_msgs::Odometry& imuOdom);
+    void pushImuMsg(const sensor_msgs::Imu& imuMsg, std::deque<nav_msgs::Odometry>& odomIncreQueue, ros::Publisher& pubImuOdometry);
     void pushOdomIncreMsg(const nav_msgs::Odometry& odomMsg);
-    void setOdomMsg(const nav_msgs::Odometry& odomMsg);
 };
 
 #endif

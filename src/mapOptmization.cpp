@@ -46,6 +46,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT (PointXYZIRPYT,
 
 typedef PointXYZIRPYT  PointTypePose;
 
+shared_ptr<spdlog::logger> logger;
 
 class mapOptimization : public ParamServer
 {
@@ -447,7 +448,7 @@ public:
         if (cloudKeyPoses3D->points.empty() == true)
             return;
 
-        pcl::KdTreeFLANN<PointType>::Ptr kdtreeGlobalMap(new pcl::KdTreeFLANN<PointType>());;
+        pcl::KdTreeFLANN<PointType>::Ptr kdtreeGlobalMap(new pcl::KdTreeFLANN<PointType>());
         pcl::PointCloud<PointType>::Ptr globalMapKeyPoses(new pcl::PointCloud<PointType>());
         pcl::PointCloud<PointType>::Ptr globalMapKeyPosesDS(new pcl::PointCloud<PointType>());
         pcl::PointCloud<PointType>::Ptr globalMapKeyFrames(new pcl::PointCloud<PointType>());
@@ -1295,26 +1296,38 @@ public:
 
         if (laserCloudCornerLastDSNum > edgeFeatureMinValidNum && laserCloudSurfLastDSNum > surfFeatureMinValidNum)
         {
+            cout << "local corner cloud size: " << laserCloudCornerFromMapDS->size() << endl;
+            cout << "local surf cloud size: " << laserCloudSurfFromMapDS->size() << endl;
+            cout << "current corner cloud size: " << laserCloudCornerLastDSNum << endl;
+            cout << "current surf cloud size: " << laserCloudSurfLastDSNum << endl;
+
+
             kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMapDS);
             kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
             common::TicToc t1;
+            common::TicToc t2;
             for (int iterCount = 0; iterCount < 30; iterCount++)
             {
                 laserCloudOri->clear();
                 coeffSel->clear();
-
+                t2.tic();
                 cornerOptimization();
+                logger->info("cornerOp cost: {}", t2.toc() * 1000);
+                t2.tic();
                 surfOptimization();
-
+                logger->info("surfOp cost: {}", t2.toc() * 1000);
+                t2.tic();
                 combineOptimizationCoeffs();
-                
+                logger->info("combineOptimizationCoeffs cost: {}", t2.toc() * 1000);
+                t2.tic();
 
                 if (LMOptimization(iterCount) == true) {
                     break;
-                }           
+                }   
+                logger->info("LM cost: {}", t2.toc() * 1000);         
             }
-
             transformUpdate();
+            logger->info("total optimization cost: {}", t1.toc() * 1000);
         } else {
             ROS_WARN("Not enough features! Only %d edge and %d planar features available.", laserCloudCornerLastDSNum, laserCloudSurfLastDSNum);
         }
@@ -1798,6 +1811,7 @@ int main(int argc, char** argv)
     mapOptimization MO;
 
     ROS_INFO("\033[1;32m----> Map Optimization Started.\033[0m");
+    logger = logger = spdlog::stdout_color_mt("console1"); 
     
     std::thread loopthread(&mapOptimization::loopClosureThread, &MO);
     std::thread visualizeMapThread(&mapOptimization::visualizeGlobalMapThread, &MO);

@@ -6,11 +6,24 @@ double ROS_TIME(T msg)
     return msg->header.stamp.toSec();
 }
 
+Eigen::Affine3f odom2affine(const nav_msgs::Odometry odom)
+{
+    double x, y, z, roll, pitch, yaw;
+    x = odom.pose.pose.position.x;
+    y = odom.pose.pose.position.y;
+    z = odom.pose.pose.position.z;
+    tf::Quaternion orientation;
+    tf::quaternionMsgToTF(odom.pose.pose.orientation, orientation);
+    tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
+    return pcl::getTransformation(x, y, z, roll, pitch, yaw);
+}
+
 IMUPreIntegrator::IMUPreIntegrator(std::shared_ptr<spdlog::logger> _logger) {
+    
     this->logger = _logger;
     boost::shared_ptr<gtsam::PreintegrationParams> p = gtsam::PreintegrationParams::MakeSharedU(9.80511);
-    p->accelerometerCovariance = gtsam::Matrix33::Identity(3, 3) * pow(0.01, 2);
-    p->gyroscopeCovariance      = gtsam::Matrix33::Identity(3,3) * pow(0.001, 2); // gyro white noise in continuous
+    p->accelerometerCovariance = gtsam::Matrix33::Identity(3,3) * pow(3.9939570888238808e-03, 2);
+    p->gyroscopeCovariance      = gtsam::Matrix33::Identity(3,3) * pow(1.5636343949698187e-03, 2); // gyro white noise in continuous
     p->integrationCovariance    = gtsam::Matrix33::Identity(3,3) * pow(1e-4, 2); // error committed in integrating position from velocities
     gtsam::imuBias::ConstantBias prior_imu_bias((gtsam::Vector(6) << 0, 0, 0, 0, 0, 0).finished());; // assume zero initial bias
 
@@ -19,7 +32,7 @@ IMUPreIntegrator::IMUPreIntegrator(std::shared_ptr<spdlog::logger> _logger) {
     priorBiasNoise  = gtsam::noiseModel::Isotropic::Sigma(6, 1e-3); // 1e-2 ~ 1e-3 seems to be good
     correctionNoise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 0.05, 0.05, 0.05, 0.1, 0.1, 0.1).finished()); // rad,rad,rad,m, m, m
     correctionNoise2 = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 1, 1, 1, 1, 1, 1).finished()); // rad,rad,rad,m, m, m
-    noiseModelBetweenBias = (gtsam::Vector(6) << 0.0002, 0.0002, 0.0002, 0.00003, 0.00003, 0.00003).finished();
+    noiseModelBetweenBias = (gtsam::Vector(6) << 6.4356659353532566e-05, 6.4356659353532566e-05, 6.4356659353532566e-05, 3.5640318696367613e-05, 3.5640318696367613e-05, 3.5640318696367613e-05).finished();
     
     imuIntegratorImu_ = new gtsam::PreintegratedImuMeasurements(p, prior_imu_bias); // setting up the IMU integration for IMU message thread
     imuIntegratorOpt_ = new gtsam::PreintegratedImuMeasurements(p, prior_imu_bias); // setting up the IMU integration for optimization        
@@ -28,18 +41,6 @@ IMUPreIntegrator::IMUPreIntegrator(std::shared_ptr<spdlog::logger> _logger) {
 IMUPreIntegrator::~IMUPreIntegrator() {
 
 }
-
-Eigen::Affine3f odom2affine(const nav_msgs::Odometry odom)
-    {
-        double x, y, z, roll, pitch, yaw;
-        x = odom.pose.pose.position.x;
-        y = odom.pose.pose.position.y;
-        z = odom.pose.pose.position.z;
-        tf::Quaternion orientation;
-        tf::quaternionMsgToTF(odom.pose.pose.orientation, orientation);
-        tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
-        return pcl::getTransformation(x, y, z, roll, pitch, yaw);
-    }
 
 void IMUPreIntegrator::resetOptimization(){
     gtsam::ISAM2Params optParameters;
@@ -55,6 +56,7 @@ void IMUPreIntegrator::resetOptimization(){
 }
 
 void IMUPreIntegrator::resetParams() {
+    lastImuT_imu = -1;
     doneFirstOpt = false;
     systemInitialized = false;
 }
@@ -82,7 +84,7 @@ void IMUPreIntegrator::getImuBias() const{
 
 }
 
-void IMUPreIntegrator::pushImuMsg(const sensor_msgs::Imu& imuMsg, nav_msgs::Odometry& lidarIncreOdom, nav_msgs::Odometry& imuOdom){
+void IMUPreIntegrator::pushImuMsg(const sensor_msgs::Imu& imuMsg, std::deque<nav_msgs::Odometry>& odomIncreQueue, ros::Publisher& pubImuOdometry){
     std::lock_guard<std::mutex> lock1(queImuMutex);
     std::lock_guard<std::mutex> lock2(queOptMutex);
     imuQueImu.push_back(imuMsg);
@@ -90,6 +92,18 @@ void IMUPreIntegrator::pushImuMsg(const sensor_msgs::Imu& imuMsg, nav_msgs::Odom
     if (doneFirstOpt == false)
         return;
     // 返回一个当前的odom
+    double imuTime = imuMsg.header.stamp.toSec();
+    double dt = (lastImuT_imu < 0) ? (1.0 / 500.0) : (imuTime - lastImuT_imu);
+    lastImuT_imu = imuTime;
+
+    // integrate this single imu message
+    imuIntegratorImu_->integrateMeasurement(gtsam::Vector3(imuMsg.linear_acceleration.x, 
+                                            imuMsg.linear_acceleration.y, 
+                                            imuMsg.linear_acceleration.z),
+                                            gtsam::Vector3(imuMsg.angular_velocity.x,    
+                                            imuMsg.angular_velocity.y,   
+                                            imuMsg.angular_velocity.z), dt);
+
     gtsam::NavState currentState = imuIntegratorImu_->predict(prevStateOdom, prevBiasOdom);
     // publish odometry
     nav_msgs::Odometry odometry;
@@ -115,42 +129,10 @@ void IMUPreIntegrator::pushImuMsg(const sensor_msgs::Imu& imuMsg, nav_msgs::Odom
     odometry.twist.twist.angular.x = imuMsg.angular_velocity.x + prevBiasOdom.gyroscope().x();
     odometry.twist.twist.angular.y = imuMsg.angular_velocity.y + prevBiasOdom.gyroscope().y();
     odometry.twist.twist.angular.z = imuMsg.angular_velocity.z + prevBiasOdom.gyroscope().z();
-
-    this->imuOdomQueue.push_back(odometry);
-
-    std::lock_guard<mutex> odomLock(odomMutex);
-    // 发布增量式的odom
-    if (lidarOdomTime == -1)
-        return;
-    while (!imuOdomQueue.empty())
-        {
-            if (imuOdomQueue.front().header.stamp.toSec() <= lidarOdomTime)
-                imuOdomQueue.pop_front();
-            else
-                break;
-        }
-    Eigen::Affine3f imuOdomAffineFront = odom2affine(imuOdomQueue.front());
-    Eigen::Affine3f imuOdomAffineBack = odom2affine(imuOdomQueue.back());
-    Eigen::Affine3f imuOdomAffineIncre = imuOdomAffineFront.inverse() * imuOdomAffineBack;
-    Eigen::Affine3f imuOdomAffineLast = lidarOdomAffine * imuOdomAffineIncre;
-    float x, y, z, roll, pitch, yaw;
-    pcl::getTranslationAndEulerAngles(imuOdomAffineLast, x, y, z, roll, pitch, yaw);
-    
-    // publish latest odometry利用上一帧的雷达里程计坐标加上imuOdom的增量，得到的imu频率的雷达里程计
-    nav_msgs::Odometry laserOdometry = imuOdomQueue.back();
-    laserOdometry.pose.pose.position.x = x;
-    laserOdometry.pose.pose.position.y = y;
-    laserOdometry.pose.pose.position.z = z;
-    laserOdometry.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, yaw);
-    lidarIncreOdom = laserOdometry;
-    imuOdom = odometry;
+    odomIncreQueue.push_back(odometry);
+    pubImuOdometry.publish(odometry);
 }
 
-void IMUPreIntegrator::setOdomMsg(const nav_msgs::Odometry& odomMsg) {
-    std::lock_guard<mutex> odomLock(odomMutex);
-    lidarOdomAffine = odom2affine(odomMsg);
-    lidarOdomTime = odomMsg.header.stamp.toSec();
-}
 
 void IMUPreIntegrator::pushOdomIncreMsg(const nav_msgs::Odometry& odomMsg){
     // 优化操作
@@ -324,4 +306,65 @@ void IMUPreIntegrator::pushOdomIncreMsg(const nav_msgs::Odometry& odomMsg){
     }
     ++key;
     doneFirstOpt = true;
+}
+
+
+TransformFusion::TransformFusion() {
+    subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("lio_sam/mapping/odometry_incremental", 5, &TransformFusion::lidarOdometryHandler, this, ros::TransportHints().tcpNoDelay());
+        // 根据上面的低频雷达里程计，结合imu里成绩，得到高频的雷达里程计
+    subImuOdometry   = nh.subscribe<nav_msgs::Odometry>("/odometry/imu",   2000, &TransformFusion::imuOdometryHandler,   this, ros::TransportHints().tcpNoDelay());
+    pubImuPath       = nh.advertise<nav_msgs::Path>    ("lio_sam/imu/path", 1);
+    transBase2Map  = Eigen::Affine3f::Identity();
+    transOdom2Map  = Eigen::Affine3f::Identity();
+    transBase2Odom = Eigen::Affine3f::Identity(); 
+}
+
+TransformFusion::~TransformFusion() {
+
+}
+
+void TransformFusion::lidarOdometryHandler(const nav_msgs::Odometry::ConstPtr& odomMsg) {
+    std::lock_guard<std::mutex> lock(mtx);
+    if(imuOdomQueue.empty())
+        return;
+    
+    transBase2Map = odom2affine(*odomMsg);
+    lidarOdomTime = odomMsg->header.stamp.toSec();
+    while (!imuOdomQueue.empty()) {
+        if (imuOdomQueue.front().header.stamp.toSec() <= lidarOdomTime)
+            imuOdomQueue.pop_front();
+        else
+            break;
+    }
+    if(imuOdomQueue.empty())
+        return;
+    Eigen::Affine3f curImuOdom = odom2affine(imuOdomQueue.front());
+    transOdom2Map = transBase2Map * transBase2Odom.inverse();
+}
+
+void TransformFusion::imuOdometryHandler(const nav_msgs::Odometry::ConstPtr& odomMsg) {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    imuOdomQueue.push_back(*odomMsg);
+    transBase2Odom = odom2affine(*odomMsg);
+
+    if (lidarOdomTime == -1)
+        return;
+
+    static tf::TransformBroadcaster tfOdom2Map;
+    float x, y, z, roll, pitch, yaw;
+    pcl::getTranslationAndEulerAngles(transOdom2Map, x, y, z, roll, pitch, yaw);
+    tf::Transform t;
+    tf::Quaternion q;
+    q.setRPY(roll, pitch, yaw);
+    t.setOrigin(tf::Vector3(x, y, z));
+    t.setRotation(q);
+    tfOdom2Map.sendTransform(tf::StampedTransform(t, odomMsg->header.stamp, "map", "odom"));
+
+    static tf::TransformBroadcaster tfBase2Odom;
+    pcl::getTranslationAndEulerAngles(transBase2Odom, x, y, z, roll, pitch, yaw);
+    q.setRPY(roll, pitch, yaw);
+    t.setOrigin(tf::Vector3(x, y, z));
+    t.setRotation(q);
+    tfBase2Odom.sendTransform(tf::StampedTransform(t, odomMsg->header.stamp, "odom", "velodyne"));
 }
