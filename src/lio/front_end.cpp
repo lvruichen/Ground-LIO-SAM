@@ -252,7 +252,7 @@ int main(int argc, char** argv) {
 
     downSizeFilterCorner.setLeafSize(0.2, 0.2, 0.2);
     downSizeFilterSurf.setLeafSize(0.4, 0.4, 0.4);
-    downSizeFilterRaw.setLeafSize(0.2, 0.2, 0.2);
+    downSizeFilterRaw.setLeafSize(0.4, 0.4, 0.4);
 
     std::thread thread_featureExtraction{featureExtractionThread};
     std::thread thread_imuIntegration{preIntegrationThread};

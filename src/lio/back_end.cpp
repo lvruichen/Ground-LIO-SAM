@@ -5,6 +5,7 @@
 ros::Publisher pubLaserOdometryIncremental;
 ros::Publisher pubGlobalCloud;
 ros::Publisher pubGlobalpath;
+ros::Publisher pubSlamInfo;
 PoseEstimator* poseEstimatorPtr;
 MapManager* mapManagerPtr;
 std::shared_ptr<spdlog::logger> logger;
@@ -32,6 +33,10 @@ void laserKeyFrameHandler(const lio_sam::keyFrame::ConstPtr& keyFrameMsg) {
     if(poseEstimatorPtr->propagateIMUFlag) {
         nav_msgs::Odometry odomIncre = poseEstimatorPtr->propagateIMU(*thisKeyFrame);
         pubLaserOdometryIncremental.publish(odomIncre);
+        lio_sam::keyFrame kf;
+        kf.odomMsg = odomIncre;
+        kf.cloud_raw = keyFrameMsg->cloud_raw;
+        pubSlamInfo.publish(kf);
     }    
     // correctPoses (loop closure thread)
 
@@ -59,6 +64,7 @@ int main(int argc, char** argv) {
     pubLaserOdometryIncremental = nh.advertise<nav_msgs::Odometry>("lio_sam/mapping/odometry_incremental", 1);
     pubGlobalCloud = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/global_cloud", 1);
     pubGlobalpath = nh.advertise<nav_msgs::Path>("lio_sam/global_path", 1);
+    pubSlamInfo = nh.advertise<lio_sam::keyFrame>("lio_sam/slam_info", 1);
 
     std::thread thread_visualizor{visualizationThread};
     ros::spin();

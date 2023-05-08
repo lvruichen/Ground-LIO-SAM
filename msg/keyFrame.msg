@@ -21,3 +21,6 @@ float32 initialGuessYaw
 sensor_msgs/PointCloud2 cloud_raw  # original cloud deskewed
 sensor_msgs/PointCloud2 cloud_corner    # extracted corner feature
 sensor_msgs/PointCloud2 cloud_surface   # extracted surface feature
+
+#odomMsg
+nav_msgs/Odometry odomMsg
