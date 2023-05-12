@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
   nav_msgs
   message_generation
   visualization_msgs
+  dynamic_removal
 )
 
 find_package(OpenMP REQUIRED)

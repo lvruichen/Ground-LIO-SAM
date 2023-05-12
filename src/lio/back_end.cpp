@@ -1,6 +1,7 @@
 #include "poseEstimator/poseEstimator.h"
 #include "utils/visualizor.hpp"
 #include "lio_sam/keyFrame.h"
+#include "dynamic_removal/keyScan.h"
 
 ros::Publisher pubLaserOdometryIncremental;
 ros::Publisher pubGlobalCloud;
@@ -33,10 +34,10 @@ void laserKeyFrameHandler(const lio_sam::keyFrame::ConstPtr& keyFrameMsg) {
     if(poseEstimatorPtr->propagateIMUFlag) {
         nav_msgs::Odometry odomIncre = poseEstimatorPtr->propagateIMU(*thisKeyFrame);
         pubLaserOdometryIncremental.publish(odomIncre);
-        lio_sam::keyFrame kf;
-        kf.odomMsg = odomIncre;
-        kf.cloud_raw = keyFrameMsg->cloud_raw;
-        pubSlamInfo.publish(kf);
+        dynamic_removal::keyScan ks;
+        ks.odomMsg = odomIncre;
+        ks.cloud_raw = keyFrameMsg->cloud_raw;
+        pubSlamInfo.publish(ks);
     }    
     // correctPoses (loop closure thread)
 
@@ -64,7 +65,7 @@ int main(int argc, char** argv) {
     pubLaserOdometryIncremental = nh.advertise<nav_msgs::Odometry>("lio_sam/mapping/odometry_incremental", 1);
     pubGlobalCloud = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/global_cloud", 1);
     pubGlobalpath = nh.advertise<nav_msgs::Path>("lio_sam/global_path", 1);
-    pubSlamInfo = nh.advertise<lio_sam::keyFrame>("lio_sam/slam_info", 1);
+    pubSlamInfo = nh.advertise<dynamic_removal::keyScan>("lio_sam/slam_info", 1);
 
     std::thread thread_visualizor{visualizationThread};
     ros::spin();
